@@ -16,9 +16,15 @@ from handlers.menu import menu_principal
 from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
-from handlers.atalhos import processar_atalhos
-from handlers.alertas import job_alertas_diarios, testar_alertas
-from handlers.relatorio import job_virada_mes, relatorio_mes_passado, relatorio_mes_atual
+
+from handlers.relatorio import (
+    job_virada_mes,
+    relatorio_mes_passado,
+    relatorio_mes_atual,
+)
+
+from handlers.extrato import extrato, apagar
+
 from handlers.alertas import job_alertas_diarios
 from handlers.rapido import processar_mensagem_rapida
 
@@ -34,6 +40,9 @@ async def post_init(app: Application):
             BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
             BotCommand("relatorio", "Relatório do mês passado"),
+            BotCommand("relatorio_atual", "Relatório do mês atual"),
+            BotCommand("extrato", "Ver últimos lançamentos"),
+            BotCommand("apagar", "Apagar lançamento por ID"),
         ]
     )
 
@@ -52,23 +61,26 @@ def main():
     app = Application.builder().token(token).post_init(post_init).build()
     app.add_error_handler(_error_handler)
 
-    # comandos
+    # comandos principais
     app.add_handler(CommandHandler("start", menu_principal))
     app.add_handler(CommandHandler("stats", estatisticas))
     app.add_handler(CommandHandler("historico", historico_mensal))
     app.add_handler(CommandHandler("comparar", comparacao_mes_a_mes))
 
-    # ✅ TESTES do relatório
+    # relatórios
     app.add_handler(CommandHandler("relatorio", relatorio_mes_passado))
     app.add_handler(CommandHandler("relatorio_atual", relatorio_mes_atual))
-    app.add_handler(CommandHandler("test_alertas", testar_alertas))
+
+    # ✅ extrato e apagar
+    app.add_handler(CommandHandler("extrato", extrato))
+    app.add_handler(CommandHandler("apagar", apagar))
 
     # botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # mensagens rápidas
+    # mensagens rápidas (inclui atalhos e entrada/gasto/salario)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
     # jobs

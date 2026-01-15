@@ -251,3 +251,40 @@ def buscar_transacoes_mensal(user_id: int, ano: int, mes: int):
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def ultimas_transacoes(user_id: int, limite: int = 10):
+    conn = _conectar()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, tipo, valor, categoria, descricao, criado_em
+        FROM transacoes
+        WHERE user_id=?
+        ORDER BY datetime(criado_em) DESC
+        LIMIT ?
+        """,
+        (user_id, limite),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def apagar_transacao(user_id: int, transacao_id: int) -> bool:
+    """
+    Apaga somente se a transação for do próprio user_id.
+    Retorna True se apagou, False se não encontrou.
+    """
+    conn = _conectar()
+    cur = conn.cursor()
+
+    cur.execute(
+        "DELETE FROM transacoes WHERE id=? AND user_id=?",
+        (transacao_id, user_id),
+    )
+    apagou = cur.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return apagou
+
