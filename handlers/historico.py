@@ -1,54 +1,41 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from telegram import Update
 from telegram.ext import ContextTypes
-from datetime import datetime
 
-from database.db import buscar_resumo_mensal
+from database.db import buscar_transacoes_mensal
 
-MESES = {
-    "01": "Janeiro",
-    "02": "Fevereiro",
-    "03": "Março",
-    "04": "Abril",
-    "05": "Maio",
-    "06": "Junho",
-    "07": "Julho",
-    "08": "Agosto",
-    "09": "Setembro",
-    "10": "Outubro",
-    "11": "Novembro",
-    "12": "Dezembro",
-}
+TZ = ZoneInfo("America/Cuiaba")
+
+
+def _fmt(v: float) -> str:
+    return f"R$ {v:,.2f}"
 
 
 async def historico_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    agora = datetime.now(TZ)
+    ano, mes = agora.year, agora.month
+    user_id = update.effective_user.id
 
-    user_id = query.from_user.id
-    dados = buscar_resumo_mensal(user_id)
+    itens = buscar_transacoes_mensal(user_id, ano, mes)
 
-    if not dados:
-        await query.message.reply_text("📭 Nenhum registro encontrado ainda.")
+    if not itens:
+        texto = f"📅 *Histórico {mes:02d}/{ano}*\n\nNenhuma transação encontrada."
+        if update.callback_query:
+            await update.callback_query.answer()
+            await update.callback_query.message.reply_text(texto, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(texto, parse_mode="Markdown")
         return
 
-    msg = "📅 *Histórico Mensal*\n\n"
+    texto = f"📅 *Histórico {mes:02d}/{ano}* (últimas 20)\n\n"
+    for t in itens[:20]:
+        tipo = "Entrada" if t["tipo"] == "entrada" else "Gasto"
+        texto += f"• {tipo}: {_fmt(float(t['valor']))} — {t['descricao']} ({t['categoria']})\n"
 
-    for mes_ano, entradas, gastos, investimentos in dados:
-        # mes_ano vem como "MM/YYYY"
-        mes_num, ano = mes_ano.split("/")
-        mes_nome = MESES.get(mes_num, mes_num)
-
-        entradas = entradas or 0
-        gastos = gastos or 0
-        investimentos = investimentos or 0
-        saldo = entradas - gastos
-
-        msg += (
-            f"🗓️ *{mes_nome}/{ano}*\n"
-            f"💰 Entradas: R$ {entradas:,.2f}\n"
-            f"💸 Gastos: R$ {gastos:,.2f}\n"
-            f"📈 Investimentos: R$ {investimentos:,.2f}\n"
-            f"💼 Saldo: R$ {saldo:,.2f}\n\n"
-        )
-
-    await query.message.reply_text(msg, parse_mode="Markdown")
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(texto, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto, parse_mode="Markdown")
