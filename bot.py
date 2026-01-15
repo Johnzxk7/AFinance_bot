@@ -1,13 +1,13 @@
-# bot.py
+# bot.py (COPIE E COLE INTEIRO)
 import os
 import datetime
-
-from telegram import BotCommand
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
+    ContextTypes,
     filters,
 )
 
@@ -25,37 +25,70 @@ from handlers.alertas import job_alertas_diarios
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
 
+# --- helpers: reaproveitar handlers de callback em comandos /stats, /historico, /comparar ---
+class _FakeCallbackQuery:
+    def __init__(self, message, from_user):
+        self.message = message
+        self.from_user = from_user
+
+    async def answer(self):
+        return
+
+
+def _fake_callback_update(update: Update) -> Update:
+    update.callback_query = _FakeCallbackQuery(update.message, update.effective_user)
+    return update
+
+
+async def _stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await estatisticas(_fake_callback_update(update), context)
+
+
+async def _historico_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await historico_mensal(_fake_callback_update(update), context)
+
+
+async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await comparacao_mes_a_mes(_fake_callback_update(update), context)
+
+
+async def post_init(app: Application):
+    # ✅ cria tabelas no boot (garantia extra)
+    criar_tabelas()
+
+    # ✅ menu de comandos do Telegram (agora com await, sem warning)
+    await app.bot.set_my_commands(
+        [
+            BotCommand("start", "Abrir menu"),
+            BotCommand("stats", "Estatísticas do mês"),
+            BotCommand("historico", "Histórico mensal"),
+            BotCommand("comparar", "Comparação mês a mês"),
+        ]
+    )
+
+
 def main():
     token = os.getenv("BOT_TOKEN")
     if not token:
         raise RuntimeError("BOT_TOKEN não encontrado nas variáveis de ambiente")
 
+    # (cria tabelas também aqui, caso rode local sem post_init)
     criar_tabelas()
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(post_init).build()
 
-    # ✅ comandos do Telegram (aquele menu)
-    app.bot.set_my_commands([
-        BotCommand("start", "Abrir menu"),
-        BotCommand("stats", "Estatísticas do mês"),
-        BotCommand("historico", "Histórico mensal"),
-        BotCommand("comparar", "Comparação mês a mês"),
-    ])
-
-    # /start
+    # /start e comandos
     app.add_handler(CommandHandler("start", menu_principal))
-
-    # comandos como alternativa rápida
-    app.add_handler(CommandHandler("stats", lambda u, c: estatisticas(_fake_callback_update(u), c)))
-    app.add_handler(CommandHandler("historico", lambda u, c: historico_mensal(_fake_callback_update(u), c)))
-    app.add_handler(CommandHandler("comparar", lambda u, c: comparacao_mes_a_mes(_fake_callback_update(u), c)))
+    app.add_handler(CommandHandler("stats", _stats_cmd))
+    app.add_handler(CommandHandler("historico", _historico_cmd))
+    app.add_handler(CommandHandler("comparar", _comparar_cmd))
 
     # botões do /start
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ✅ mensagens rápidas (gasto/entrada/salario)
+    # ✅ mensagens rápidas
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
     # ✅ relatório na virada do mês (dia 1 às 09:00)
@@ -66,7 +99,7 @@ def main():
         name="relatorio_virada_mes",
     )
 
-    # ✅ alertas diários (ex: 20:00)
+    # ✅ alertas diários às 20:00 (como você pediu)
     app.job_queue.run_daily(
         callback=job_alertas_diarios,
         time=datetime.time(hour=HORA_ALERTA_DIARIO, minute=MINUTO_ALERTA_DIARIO),
@@ -75,22 +108,6 @@ def main():
 
     print("🤖 AFinance rodando...")
     app.run_polling()
-
-
-# --- helpers para reutilizar handlers de callback em /comandos ---
-# (mantém seus handlers atuais sem reescrever tudo)
-from telegram import Update
-class _FakeCallbackQuery:
-    def __init__(self, message, from_user):
-        self.message = message
-        self.from_user = from_user
-    async def answer(self):  # compatível
-        return
-
-def _fake_callback_update(update: Update) -> Update:
-    # cria um Update "parecido" com callback, usando a message atual
-    update.callback_query = _FakeCallbackQuery(update.message, update.effective_user)
-    return update
 
 
 if __name__ == "__main__":
