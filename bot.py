@@ -69,7 +69,6 @@ def main():
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
     # mensagens rápidas
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_atalhos))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
     # jobs
