@@ -157,8 +157,74 @@ def listar_transacoes_mes(user_id: int, ano: int, mes: int):
 
 
 # =========================================================
+# ✅ FUNÇÕES DE RELATÓRIO (handlers/relatorio.py)
+# =========================================================
+
+def listar_usuarios():
+    """
+    Retorna lista de user_id que já possuem alguma transação.
+    Usado para mandar relatório automático no 1º dia do mês.
+    """
+    conn = _conectar()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT DISTINCT user_id
+        FROM transacoes
+        """
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [int(r["user_id"]) for r in rows]
+
+
+def saldo_acumulado(user_id: int, ano: int, mes: int) -> float:
+    """
+    Retorna saldo acumulado (entradas - gastos) até o fim do mês informado.
+    Ex: saldo total do usuário até 2026-01.
+    """
+    # Filtramos por "YYYY-MM" <= prefixo usando comparação de string ISO
+    prefixo = f"{ano:04d}-{mes:02d}"
+
+    conn = _conectar()
+    cur = conn.cursor()
+
+    # entradas até o mês
+    cur.execute(
+        """
+        SELECT COALESCE(SUM(valor), 0) as total
+        FROM transacoes
+        WHERE user_id = ?
+          AND tipo = 'entrada'
+          AND substr(criado_em, 1, 7) <= ?
+        """,
+        (user_id, prefixo),
+    )
+    entradas = float(cur.fetchone()["total"] or 0)
+
+    # gastos até o mês
+    cur.execute(
+        """
+        SELECT COALESCE(SUM(valor), 0) as total
+        FROM transacoes
+        WHERE user_id = ?
+          AND tipo = 'gasto'
+          AND substr(criado_em, 1, 7) <= ?
+        """,
+        (user_id, prefixo),
+    )
+    gastos = float(cur.fetchone()["total"] or 0)
+
+    conn.close()
+
+    return entradas - gastos
+
+
+# =========================================================
 # ✅ FUNÇÕES DE COMPATIBILIDADE (NOMES ANTIGOS DO PROJETO)
-# Essas existem só para não quebrar seus handlers atuais.
 # =========================================================
 
 def buscar_resumo_mensal(user_id: int, ano: int, mes: int) -> dict:
@@ -170,7 +236,7 @@ def buscar_resumo_mensal(user_id: int, ano: int, mes: int) -> dict:
 
 def buscar_transacoes_mensal(user_id: int, ano: int, mes: int):
     """
-    Alias compatível (caso algum handler use esse nome)
+    Alias compatível caso algum handler use esse nome.
     """
     return listar_transacoes_mes(user_id, ano, mes)
 
