@@ -21,7 +21,8 @@ from handlers.relatorio import job_virada_mes
 
 from handlers.rapido import processar_mensagem_rapida
 from handlers.alertas import job_alertas_diarios
-from handlers.atalhos import atalhos_como_mensagem
+
+from handlers.atalhos import atalhos_como_mensagem  # ✅ atalhos (arquivo separado)
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
@@ -67,7 +68,7 @@ async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# post_init
+# post_init (PTB v20+)
 # =========================
 async def post_init(app: Application):
     criar_tabelas()
@@ -99,33 +100,45 @@ def main():
 
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # ====== Comandos
+    # ====== Comandos (slash)
     app.add_handler(CommandHandler("start", menu_principal))
     app.add_handler(CommandHandler("stats", _stats_cmd))
     app.add_handler(CommandHandler("historico", _historico_cmd))
     app.add_handler(CommandHandler("comparar", _comparar_cmd))
-    app.add_handler(CommandHandler("compara", _comparar_cmd))  # alias
+
+    # ✅ Alias: /compara
+    app.add_handler(CommandHandler("compara", _comparar_cmd))
 
     # ====== Callbacks dos botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ✅ Atalhos como mensagem (sem /)
-    # "menu", "resumo", "mes", "comparacao", etc
-    app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, atalhos_como_mensagem)
+    # =====================================================
+    # ✅ NOVO: atalhos como mensagem SEM / (sem quebrar o rápido)
+    # Só dispara se a mensagem for EXATAMENTE um desses atalhos.
+    # Assim "gasto 25 lanche" continua indo pro rápido normal.
+    # =====================================================
+    ATALHOS_REGEX = (
+        r"(?i)^\s*("
+        r"start|menu|"
+        r"stats|stat|resumo|estat[ií]stica(?:s)?|"
+        r"historico|hist[oó]rico|hist|"
+        r"mes|m[eê]s|"
+        r"comparar|compara|comparacao|compara[cç][aã]o"
+        r")\s*$"
     )
-
-    # ✅ Mensagens rápidas normais
-    # Aqui a gente EXCLUI os atalhos pra não disparar junto.
-    atalhos_regex = r"(?i)^\s*(start|menu|stats|stat|resumo|estatistica|estatisticas|historico|hist|mes|mês|comparar|compara|comparacao|comparação)\s*$"
 
     app.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND & ~filters.Regex(atalhos_regex),
-            processar_mensagem_rapida,
+            filters.TEXT & ~filters.COMMAND & filters.Regex(ATALHOS_REGEX),
+            atalhos_como_mensagem,
         )
+    )
+
+    # ====== Mensagens rápidas normais (gasto/entrada/salario etc)
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida)
     )
 
     # ====== Jobs
