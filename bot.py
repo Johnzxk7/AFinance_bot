@@ -1,7 +1,6 @@
 import os
 import datetime
 import logging
-
 from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
@@ -22,12 +21,13 @@ from handlers.relatorio import job_virada_mes
 
 from handlers.rapido import processar_mensagem_rapida
 from handlers.alertas import job_alertas_diarios
+from handlers.atalhos import atalhos_como_mensagem  # ✅ NOVO
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
 
 # =========================
-# LOGS (ajuda MUITO no systemd/journalctl)
+# LOGS
 # =========================
 logging.basicConfig(
     level=logging.INFO,
@@ -67,19 +67,18 @@ async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# Correto no PTB v20+: configurar comandos no post_init com await
+# post_init (PTB v20+)
 # =========================
 async def post_init(app: Application):
-    # Cria tabelas uma vez ao iniciar a aplicação
     criar_tabelas()
 
-    # set_my_commands é ASYNC -> precisa de await (isso evita o RuntimeWarning)
     await app.bot.set_my_commands(
         [
             BotCommand("start", "Abrir menu"),
             BotCommand("stats", "Estatísticas do mês"),
             BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
+            BotCommand("compara", "Atalho para comparar"),  # ✅ Alias oficial
         ]
     )
 
@@ -87,7 +86,7 @@ async def post_init(app: Application):
 
 
 # =========================
-# Handler global de erros (não deixa “morrer silencioso”)
+# Handler global de erros
 # =========================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.exception("❌ Erro no bot:", exc_info=context.error)
@@ -98,9 +97,6 @@ def main():
     if not token:
         raise RuntimeError("BOT_TOKEN não encontrado nas variáveis de ambiente")
 
-    # ⚠️ NÃO precisa chamar criar_tabelas() aqui se já está no post_init
-    # criar_tabelas()
-
     app = Application.builder().token(token).post_init(post_init).build()
 
     # ====== Comandos
@@ -109,18 +105,31 @@ def main():
     app.add_handler(CommandHandler("historico", _historico_cmd))
     app.add_handler(CommandHandler("comparar", _comparar_cmd))
 
-    # ====== Callbacks dos botões do menu (handlers existentes)
+    # ✅ Alias do comando
+    app.add_handler(CommandHandler("compara", _comparar_cmd))
+
+    # ====== Callbacks dos botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ====== Mensagens rápidas (texto normal)
+    # ✅ NOVO: Atalhos como mensagem normal (sem /)
+    # IMPORTANTE: este handler tem que vir ANTES do processar_mensagem_rapida
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida)
+        MessageHandler(
+            filters.TEXT
+            & ~filters.COMMAND
+            & filters.Regex(
+                r"^(start|stats|stat|estatisticas|estatistica|historico|hist|histórico|comparar|compara|comparacao|comparação)$"
+            ),
+            atalhos_como_mensagem,
+        )
     )
 
-    # ====== Jobs (relatório e alertas)
-    # Relatório todo dia 1 às 09:00
+    # ====== Mensagens rápidas normais
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
+
+    # ====== Jobs
     app.job_queue.run_monthly(
         callback=job_virada_mes,
         when=datetime.time(hour=9, minute=0),
@@ -128,7 +137,6 @@ def main():
         name="relatorio_virada_mes",
     )
 
-    # Alertas diários no horário configurado
     app.job_queue.run_daily(
         callback=job_alertas_diarios,
         time=datetime.time(hour=HORA_ALERTA_DIARIO, minute=MINUTO_ALERTA_DIARIO),
@@ -141,7 +149,6 @@ def main():
     print("🤖 AFinance rodando...")
     logger.info("🤖 AFinance rodando...")
 
-    # Polling (mantém o processo vivo -> systemd não fica “restartando do nada”)
     app.run_polling()
 
 
