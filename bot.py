@@ -1,4 +1,3 @@
-# bot.py (COPIE E COLE INTEIRO)
 import os
 import datetime
 from telegram import BotCommand, Update
@@ -25,7 +24,6 @@ from handlers.alertas import job_alertas_diarios
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
 
-# --- helpers: reaproveitar handlers de callback em comandos /stats, /historico, /comparar ---
 class _FakeCallbackQuery:
     def __init__(self, message, from_user):
         self.message = message
@@ -53,10 +51,7 @@ async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def post_init(app: Application):
-    # ✅ cria tabelas no boot (garantia extra)
     criar_tabelas()
-
-    # ✅ menu de comandos do Telegram (agora com await, sem warning)
     await app.bot.set_my_commands(
         [
             BotCommand("start", "Abrir menu"),
@@ -72,26 +67,21 @@ def main():
     if not token:
         raise RuntimeError("BOT_TOKEN não encontrado nas variáveis de ambiente")
 
-    # (cria tabelas também aqui, caso rode local sem post_init)
     criar_tabelas()
 
     app = Application.builder().token(token).post_init(post_init).build()
 
-    # /start e comandos
     app.add_handler(CommandHandler("start", menu_principal))
     app.add_handler(CommandHandler("stats", _stats_cmd))
     app.add_handler(CommandHandler("historico", _historico_cmd))
     app.add_handler(CommandHandler("comparar", _comparar_cmd))
 
-    # botões do /start
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ✅ mensagens rápidas
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
-    # ✅ relatório na virada do mês (dia 1 às 09:00)
     app.job_queue.run_monthly(
         callback=job_virada_mes,
         when=datetime.time(hour=9, minute=0),
@@ -99,7 +89,6 @@ def main():
         name="relatorio_virada_mes",
     )
 
-    # ✅ alertas diários às 20:00 (como você pediu)
     app.job_queue.run_daily(
         callback=job_alertas_diarios,
         time=datetime.time(hour=HORA_ALERTA_DIARIO, minute=MINUTO_ALERTA_DIARIO),
