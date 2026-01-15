@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("America/Cuiaba")
 
+# database.db fica na raiz do projeto
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "database.db")
 
@@ -19,14 +20,14 @@ def criar_tabelas():
     conn = _conectar()
     cur = conn.cursor()
 
-    # Tabela principal de transações
+    # ✅ Tabela principal (mantém compatível com stats/historico/comparacao)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS transacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            tipo TEXT NOT NULL,       -- 'gasto' ou 'entrada'
-            valor_centavos INTEGER NOT NULL,
+            tipo TEXT NOT NULL,          -- 'gasto' ou 'entrada'
+            valor REAL NOT NULL,         -- valor em REAIS (ex: 35.50)
             categoria TEXT NOT NULL,
             descricao TEXT,
             criado_em TEXT NOT NULL
@@ -34,7 +35,7 @@ def criar_tabelas():
         """
     )
 
-    # Tabela para evitar spam de alertas (1 aviso por mês por categoria)
+    # ✅ Tabela de alertas (pra não spammar)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS alertas_enviados (
@@ -54,18 +55,99 @@ def criar_tabelas():
     conn.close()
 
 
+# =========================================================
+# ✅ FUNÇÕES QUE SEUS HANDLERS JÁ USAM (stats.py etc)
+# =========================================================
+
+def resumo_mes(user_id: int, ano: int, mes: int) -> dict:
+    """
+    Retorna um dicionário com:
+    - entradas (float)
+    - gastos (float)
+    - saldo (float)
+    """
+    prefixo = f"{ano:04d}-{mes:02d}"
+
+    conn = _conectar()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT tipo, COALESCE(SUM(valor), 0) as total
+        FROM transacoes
+        WHERE user_id = ?
+          AND substr(criado_em, 1, 7) = ?
+        GROUP BY tipo
+        """,
+        (user_id, prefixo),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    entradas = 0.0
+    gastos = 0.0
+
+    for r in rows:
+        if r["tipo"] == "entrada":
+            entradas = float(r["total"] or 0)
+        elif r["tipo"] == "gasto":
+            gastos = float(r["total"] or 0)
+
+    saldo = entradas - gastos
+    return {"entradas": entradas, "gastos": gastos, "saldo": saldo}
+
+
+def top_categorias_mes(user_id: int, ano: int, mes: int, tipo: str = "gasto", limite: int = 5):
+    """
+    Retorna lista de categorias mais gastas/entradas no mês:
+    [(categoria, total_float), ...]
+    """
+    prefixo = f"{ano:04d}-{mes:02d}"
+
+    conn = _conectar()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT categoria, COALESCE(SUM(valor), 0) as total
+        FROM transacoes
+        WHERE user_id = ?
+          AND tipo = ?
+          AND substr(criado_em, 1, 7) = ?
+        GROUP BY categoria
+        ORDER BY total DESC
+        LIMIT ?
+        """,
+        (user_id, tipo, prefixo, limite),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    return [(r["categoria"], float(r["total"] or 0)) for r in rows]
+
+
+# =========================================================
+# ✅ FUNÇÃO PARA O handlers/rapido.py NOVO (insere em centavos)
+# =========================================================
+
 def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: str, descricao: str | None):
+    """
+    Recebe valor em CENTAVOS (int) e salva como valor em REAIS (float)
+    para manter compatibilidade com os handlers antigos.
+    """
+    valor_reais = float(valor_centavos) / 100.0
+
     conn = _conectar()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO transacoes (user_id, tipo, valor_centavos, categoria, descricao, criado_em)
+        INSERT INTO transacoes (user_id, tipo, valor, categoria, descricao, criado_em)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
             tipo,
-            valor_centavos,
+            valor_reais,
             categoria,
             descricao,
             datetime.now(TZ).isoformat(),
@@ -75,17 +157,21 @@ def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: s
     conn.close()
 
 
-def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) -> int:
-    """Retorna total em CENTAVOS do gasto da categoria no mês."""
-    conn = _conectar()
-    cur = conn.cursor()
+# =========================================================
+# ✅ ALERTAS INTELIGENTES (para utils/alertas_inteligentes.py)
+# =========================================================
 
-    # YYYY-MM para filtrar
+def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) -> int:
+    """
+    Retorna total em CENTAVOS do gasto da categoria no mês.
+    """
     prefixo = f"{ano:04d}-{mes:02d}"
 
+    conn = _conectar()
+    cur = conn.cursor()
     cur.execute(
         """
-        SELECT COALESCE(SUM(valor_centavos), 0) as total
+        SELECT COALESCE(SUM(valor), 0) as total
         FROM transacoes
         WHERE user_id = ?
           AND tipo = 'gasto'
@@ -96,7 +182,9 @@ def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) 
     )
     row = cur.fetchone()
     conn.close()
-    return int(row["total"] or 0)
+
+    total_reais = float(row["total"] or 0)
+    return int(round(total_reais * 100))
 
 
 def alerta_ja_enviado(user_id: int, ano: int, mes: int, categoria: str, nivel: str) -> bool:
@@ -110,9 +198,9 @@ def alerta_ja_enviado(user_id: int, ano: int, mes: int, categoria: str, nivel: s
         """,
         (user_id, ano, mes, categoria, nivel),
     )
-    exists = cur.fetchone() is not None
+    existe = cur.fetchone() is not None
     conn.close()
-    return exists
+    return existe
 
 
 def registrar_alerta(user_id: int, ano: int, mes: int, categoria: str, nivel: str):
