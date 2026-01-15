@@ -1,32 +1,28 @@
 # bot.py
 import os
 import datetime
-from zoneinfo import ZoneInfo
 
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    ConversationHandler,
     MessageHandler,
     filters,
-    Defaults,
 )
 
 from database.db import criar_tabelas
 
 from handlers.menu import menu_principal
-from handlers.entrada import iniciar_entrada, receber_entrada, AGUARDANDO_ENTRADA
-from handlers.salario import iniciar_salario, receber_salario, AGUARDANDO_SALARIO
-from handlers.gasto import iniciar_gasto, receber_gasto, AGUARDANDO_GASTO
 from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
 from handlers.relatorio import job_virada_mes
-from handlers.testes import test_relatorio
 
+from handlers.rapido import processar_mensagem_rapida
+from handlers.alertas import job_alertas_diarios
 
-TZ = ZoneInfo("America/Cuiaba")
+from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
 
 def main():
@@ -36,49 +32,65 @@ def main():
 
     criar_tabelas()
 
-    defaults = Defaults(tzinfo=TZ)
-    app = Application.builder().token(token).defaults(defaults).build()
+    app = Application.builder().token(token).build()
 
-    # Conversas
-    entrada_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_entrada, pattern="^entrada$")],
-        states={AGUARDANDO_ENTRADA: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_entrada)]},
-        fallbacks=[],
-    )
+    # ✅ comandos do Telegram (aquele menu)
+    app.bot.set_my_commands([
+        BotCommand("start", "Abrir menu"),
+        BotCommand("stats", "Estatísticas do mês"),
+        BotCommand("historico", "Histórico mensal"),
+        BotCommand("comparar", "Comparação mês a mês"),
+    ])
 
-    salario_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_salario, pattern="^salario$")],
-        states={AGUARDANDO_SALARIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_salario)]},
-        fallbacks=[],
-    )
-
-    gasto_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(iniciar_gasto, pattern="^gasto$")],
-        states={AGUARDANDO_GASTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_gasto)]},
-        fallbacks=[],
-    )
-
-    # Handlers
+    # /start
     app.add_handler(CommandHandler("start", menu_principal))
+
+    # comandos como alternativa rápida
+    app.add_handler(CommandHandler("stats", lambda u, c: estatisticas(_fake_callback_update(u), c)))
+    app.add_handler(CommandHandler("historico", lambda u, c: historico_mensal(_fake_callback_update(u), c)))
+    app.add_handler(CommandHandler("comparar", lambda u, c: comparacao_mes_a_mes(_fake_callback_update(u), c)))
+
+    # botões do /start
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
-    app.add_handler(entrada_conv)
-    app.add_handler(salario_conv)
-    app.add_handler(gasto_conv)
-    app.add_handler(CommandHandler("test_relatorio", test_relatorio))
 
+    # ✅ mensagens rápidas (gasto/entrada/salario)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
-    # ✅ Agendamento: todo dia 1 às 09:00 (horário de Cuiabá)
+    # ✅ relatório na virada do mês (dia 1 às 09:00)
     app.job_queue.run_monthly(
         callback=job_virada_mes,
-        when=datetime.time(hour=9, minute=0, tzinfo=TZ),
+        when=datetime.time(hour=9, minute=0),
         day=1,
         name="relatorio_virada_mes",
     )
 
+    # ✅ alertas diários (ex: 20:00)
+    app.job_queue.run_daily(
+        callback=job_alertas_diarios,
+        time=datetime.time(hour=HORA_ALERTA_DIARIO, minute=MINUTO_ALERTA_DIARIO),
+        name="alertas_diarios",
+    )
+
     print("🤖 AFinance rodando...")
     app.run_polling()
+
+
+# --- helpers para reutilizar handlers de callback em /comandos ---
+# (mantém seus handlers atuais sem reescrever tudo)
+from telegram import Update
+class _FakeCallbackQuery:
+    def __init__(self, message, from_user):
+        self.message = message
+        self.from_user = from_user
+    async def answer(self):  # compatível
+        return
+
+def _fake_callback_update(update: Update) -> Update:
+    # cria um Update "parecido" com callback, usando a message atual
+    update.callback_query = _FakeCallbackQuery(update.message, update.effective_user)
+    return update
 
 
 if __name__ == "__main__":

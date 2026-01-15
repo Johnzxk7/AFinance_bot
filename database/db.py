@@ -12,6 +12,7 @@ def conectar():
 def criar_tabelas():
     with conectar() as conn:
         cur = conn.cursor()
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS registros (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +27,18 @@ def criar_tabelas():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_registros_user ON registros(user_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_registros_user_data ON registros(user_id, data)")
+
+        # ✅ evita spam de alertas
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alertas_enviados (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                chave TEXT NOT NULL,      -- ex: 'saldo_negativo', 'limite_gastos'
+                periodo TEXT NOT NULL,    -- ex: '2026-01' (mês/ano) ou '2026-01-15' (dia)
+                UNIQUE(user_id, chave, periodo)
+            )
+        """)
+
         conn.commit()
 
 
@@ -40,7 +53,6 @@ def inserir_registro(user_id: int, tipo: str, valor: float, descricao: str, cate
 
 
 def listar_usuarios():
-    """Retorna lista de user_id que já registraram algo (multiusuário)."""
     with conectar() as conn:
         cur = conn.cursor()
         cur.execute("SELECT DISTINCT user_id FROM registros")
@@ -48,7 +60,6 @@ def listar_usuarios():
 
 
 def resumo_mes(user_id: int, ano: int, mes: int):
-    """Retorna (entradas, gastos, investimentos) do mês."""
     mm = f"{mes:02d}"
     yyyy = str(ano)
 
@@ -69,7 +80,6 @@ def resumo_mes(user_id: int, ano: int, mes: int):
 
 
 def top_categorias_mes(user_id: int, ano: int, mes: int, limite: int = 5):
-    """Top categorias de gasto (sem Investimento) no mês."""
     mm = f"{mes:02d}"
     yyyy = str(ano)
 
@@ -88,33 +98,9 @@ def top_categorias_mes(user_id: int, ano: int, mes: int, limite: int = 5):
             LIMIT ?
         """, (user_id, mm, yyyy, limite))
         return [(row[0], float(row[1] or 0)) for row in cur.fetchall()]
-    
-def buscar_resumo_mensal(user_id: int):
-    """
-    Retorna lista de tuplas:
-    (mes_ano 'MM/YYYY', entradas, gastos, investimentos)
-    do mais recente para o mais antigo.
-    """
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 
-                strftime('%m/%Y', date(data)) AS mes,
-                SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
-                SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos,
-                SUM(CASE WHEN categoria = 'Investimento' THEN valor ELSE 0 END) AS investimentos
-            FROM registros
-            WHERE user_id = ?
-            GROUP BY strftime('%Y-%m', date(data))
-            ORDER BY strftime('%Y-%m', date(data)) DESC
-        """, (user_id,))
-        return cur.fetchall()
+
 
 def saldo_acumulado(user_id: int, ate_data: str | None = None) -> float:
-    """
-    Saldo acumulado = (entradas + salários) - (gastos), até uma data (YYYY-MM-DD).
-    Se ate_data=None, calcula com tudo do banco.
-    """
     with conectar() as conn:
         cur = conn.cursor()
 
@@ -140,3 +126,41 @@ def saldo_acumulado(user_id: int, ate_data: str | None = None) -> float:
         entradas = float(entradas or 0)
         gastos = float(gastos or 0)
         return entradas - gastos
+
+
+def buscar_resumo_mensal(user_id: int):
+    with conectar() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 
+                strftime('%m/%Y', date(data)) AS mes,
+                SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
+                SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos,
+                SUM(CASE WHEN categoria = 'Investimento' THEN valor ELSE 0 END) AS investimentos
+            FROM registros
+            WHERE user_id = ?
+            GROUP BY strftime('%Y-%m', date(data))
+            ORDER BY strftime('%Y-%m', date(data)) DESC
+        """, (user_id,))
+        return cur.fetchall()
+
+
+def alerta_ja_enviado(user_id: int, chave: str, periodo: str) -> bool:
+    with conectar() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1 FROM alertas_enviados
+            WHERE user_id = ? AND chave = ? AND periodo = ?
+            LIMIT 1
+        """, (user_id, chave, periodo))
+        return cur.fetchone() is not None
+
+
+def marcar_alerta_enviado(user_id: int, chave: str, periodo: str):
+    with conectar() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO alertas_enviados (user_id, chave, periodo)
+            VALUES (?, ?, ?)
+        """, (user_id, chave, periodo))
+        conn.commit()
