@@ -20,7 +20,7 @@ def criar_tabelas():
     conn = _conectar()
     cur = conn.cursor()
 
-    # ✅ Tabela principal (mantém compatível com stats/historico/comparacao)
+    # ✅ tabela principal (compatível com seu projeto)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS transacoes (
@@ -35,7 +35,7 @@ def criar_tabelas():
         """
     )
 
-    # ✅ Tabela de alertas (pra não spammar)
+    # ✅ tabela para alertas inteligentes (evita spam)
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS alertas_enviados (
@@ -56,12 +56,12 @@ def criar_tabelas():
 
 
 # =========================================================
-# ✅ FUNÇÕES QUE SEUS HANDLERS JÁ USAM (stats.py etc)
+# FUNÇÕES BASE (USADAS PELOS HANDLERS)
 # =========================================================
 
 def resumo_mes(user_id: int, ano: int, mes: int) -> dict:
     """
-    Retorna um dicionário com:
+    Retorna:
     - entradas (float)
     - gastos (float)
     - saldo (float)
@@ -81,6 +81,7 @@ def resumo_mes(user_id: int, ano: int, mes: int) -> dict:
         """,
         (user_id, prefixo),
     )
+
     rows = cur.fetchall()
     conn.close()
 
@@ -99,7 +100,7 @@ def resumo_mes(user_id: int, ano: int, mes: int) -> dict:
 
 def top_categorias_mes(user_id: int, ano: int, mes: int, tipo: str = "gasto", limite: int = 5):
     """
-    Retorna lista de categorias mais gastas/entradas no mês:
+    Retorna lista:
     [(categoria, total_float), ...]
     """
     prefixo = f"{ano:04d}-{mes:02d}"
@@ -120,20 +121,68 @@ def top_categorias_mes(user_id: int, ano: int, mes: int, tipo: str = "gasto", li
         """,
         (user_id, tipo, prefixo, limite),
     )
+
     rows = cur.fetchall()
     conn.close()
 
     return [(r["categoria"], float(r["total"] or 0)) for r in rows]
 
 
+def listar_transacoes_mes(user_id: int, ano: int, mes: int):
+    """
+    Retorna transações do mês (últimas primeiro)
+    Cada item é um dict:
+      {id, tipo, valor, categoria, descricao, criado_em}
+    """
+    prefixo = f"{ano:04d}-{mes:02d}"
+
+    conn = _conectar()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT id, tipo, valor, categoria, descricao, criado_em
+        FROM transacoes
+        WHERE user_id = ?
+          AND substr(criado_em, 1, 7) = ?
+        ORDER BY criado_em DESC
+        """,
+        (user_id, prefixo),
+    )
+
+    rows = cur.fetchall()
+    conn.close()
+
+    return [dict(r) for r in rows]
+
+
 # =========================================================
-# ✅ FUNÇÃO PARA O handlers/rapido.py NOVO (insere em centavos)
+# ✅ FUNÇÕES DE COMPATIBILIDADE (NOMES ANTIGOS DO PROJETO)
+# Essas existem só para não quebrar seus handlers atuais.
+# =========================================================
+
+def buscar_resumo_mensal(user_id: int, ano: int, mes: int) -> dict:
+    """
+    Alias compatível com handlers/historico.py
+    """
+    return resumo_mes(user_id, ano, mes)
+
+
+def buscar_transacoes_mensal(user_id: int, ano: int, mes: int):
+    """
+    Alias compatível (caso algum handler use esse nome)
+    """
+    return listar_transacoes_mes(user_id, ano, mes)
+
+
+# =========================================================
+# ✅ INSERÇÃO PELO handlers/rapido.py (valor em centavos)
+# Mantém compatibilidade com o banco antigo (valor REAL)
 # =========================================================
 
 def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: str, descricao: str | None):
     """
-    Recebe valor em CENTAVOS (int) e salva como valor em REAIS (float)
-    para manter compatibilidade com os handlers antigos.
+    Recebe valor em CENTAVOS (int) e salva como REAIS (float).
     """
     valor_reais = float(valor_centavos) / 100.0
 
@@ -158,7 +207,7 @@ def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: s
 
 
 # =========================================================
-# ✅ ALERTAS INTELIGENTES (para utils/alertas_inteligentes.py)
+# ✅ ALERTAS INTELIGENTES (utils/alertas_inteligentes.py)
 # =========================================================
 
 def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) -> int:
@@ -180,6 +229,7 @@ def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) 
         """,
         (user_id, categoria, prefixo),
     )
+
     row = cur.fetchone()
     conn.close()
 
