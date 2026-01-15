@@ -24,14 +24,14 @@ async def historico_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nome_mes = MESES[mes - 1]
 
     user_id = update.effective_user.id
-    entradas, gastos, investimentos = resumo_mes(user_id, ano, mes)
-    saldo = entradas - gastos
+    entradas, gastos_totais, investimentos = resumo_mes(user_id, ano, mes)
+    saldo = entradas - gastos_totais
 
     texto = (
         f"📅 *Histórico Mensal*\n\n"
         f"🗓️ {nome_mes}/{ano}\n"
         f"💰 Entradas: {_fmt(entradas)}\n"
-        f"💸 Gastos: {_fmt(gastos)}\n"
+        f"💸 Gastos: {_fmt(gastos_totais)}\n"
         f"📈 Investimentos: {_fmt(investimentos)}\n"
         f"💼 Saldo: {_fmt(saldo)}\n"
     )

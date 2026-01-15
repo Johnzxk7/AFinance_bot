@@ -21,11 +21,13 @@ def _fmt(v: float) -> str:
 async def estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     agora = datetime.now(TZ)
     ano, mes = agora.year, agora.month
-    nome_mes = MESES[mes - 1]
 
     user_id = update.effective_user.id
-    entradas, gastos, investimentos = resumo_mes(user_id, ano, mes)
-    saldo = entradas - gastos
+
+    entradas, gastos_totais, investimentos = resumo_mes(user_id, ano, mes)
+
+    # ✅ saldo agora considera investimento como gasto (já está incluso em gastos_totais)
+    saldo = entradas - gastos_totais
 
     tops = top_categorias_mes(user_id, ano, mes, limite=5)
 
@@ -33,7 +35,7 @@ async def estatisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 *Resumo Financeiro do mês (atual)*\n"
         f"🗓 Atualizado em {agora.strftime('%d/%m/%Y')}\n\n"
         f"💰 Entradas Totais: {_fmt(entradas)}\n"
-        f"💸 Gastos Totais: {_fmt(gastos)}\n"
+        f"💸 Gastos Totais: {_fmt(gastos_totais)}\n"
         f"📈 Investimentos: {_fmt(investimentos)}\n"
         f"💼 Saldo Atual: {_fmt(saldo)}\n"
     )

@@ -24,8 +24,8 @@ def criar_tabelas():
         CREATE TABLE IF NOT EXISTS transacoes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
-            tipo TEXT NOT NULL,          -- 'gasto' ou 'entrada'
-            valor REAL NOT NULL,         -- valor em REAIS
+            tipo TEXT NOT NULL,
+            valor REAL NOT NULL,
             categoria TEXT NOT NULL,
             descricao TEXT,
             criado_em TEXT NOT NULL
@@ -51,7 +51,6 @@ def criar_tabelas():
 
 
 def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: str, descricao: str | None):
-    """Salva e retorna o ID."""
     valor_reais = float(valor_centavos) / 100.0
     criado_em = datetime.now(TZ).isoformat()
 
@@ -81,11 +80,11 @@ def listar_usuarios():
 
 def resumo_mes(user_id: int, ano: int, mes: int):
     """
-    Retorna: entradas, gastos, investimentos (em REAIS)
+    Retorna: entradas, gastos_totais, investimentos (em REAIS)
 
-    ✅ IMPORTANTE:
-    - gastos = gastos normais (SEM Investimentos)
-    - investimentos = só categoria 'Investimentos'
+    ✅ Agora o gasto_total INCLUI investimentos.
+    - investimentos = apenas categoria "Investimentos"
+    - gastos_totais = soma de TODOS os gastos do mês (inclui investimentos)
     """
     prefixo = f"{ano:04d}-{mes:02d}"
 
@@ -105,7 +104,7 @@ def resumo_mes(user_id: int, ano: int, mes: int):
     )
     entradas = float(cur.fetchone()["total"] or 0)
 
-    # gastos (SEM investimentos)
+    # gastos totais (inclui investimentos)
     cur.execute(
         """
         SELECT COALESCE(SUM(valor), 0) as total
@@ -113,13 +112,12 @@ def resumo_mes(user_id: int, ano: int, mes: int):
         WHERE user_id = ?
           AND tipo='gasto'
           AND substr(criado_em,1,7)=?
-          AND categoria != 'Investimentos'
         """,
         (user_id, prefixo),
     )
-    gastos = float(cur.fetchone()["total"] or 0)
+    gastos_totais = float(cur.fetchone()["total"] or 0)
 
-    # investimentos
+    # investimentos (subset)
     cur.execute(
         """
         SELECT COALESCE(SUM(valor), 0) as total
@@ -127,19 +125,19 @@ def resumo_mes(user_id: int, ano: int, mes: int):
         WHERE user_id = ?
           AND tipo='gasto'
           AND substr(criado_em,1,7)=?
-          AND categoria = 'Investimentos'
+          AND categoria='Investimentos'
         """,
         (user_id, prefixo),
     )
     investimentos = float(cur.fetchone()["total"] or 0)
 
     conn.close()
-    return entradas, gastos, investimentos
+    return entradas, gastos_totais, investimentos
 
 
 def top_categorias_mes(user_id: int, ano: int, mes: int, limite: int = 5):
     """
-    Top categorias APENAS de gastos normais (sem Investimentos).
+    Principais gastos (SEM Investimentos, pra não poluir o top)
     """
     prefixo = f"{ano:04d}-{mes:02d}"
 
