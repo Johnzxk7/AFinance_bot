@@ -7,13 +7,13 @@ MINUTO_ALERTA_DIARIO = 0
 # =========================
 # FLAGS / CONFIGS ANTIGAS (compatibilidade com handlers/alertas.py)
 # =========================
-# Se seu alertas.py usa essas variáveis, elas precisam existir.
 ALERTA_SALDO_NEGATIVO = True
 ALERTA_GASTOS_ALTOS = True
+ALERTA_LIMITE_GASTOS = True  # ✅ NOVO (faltava)
 
-# Limites gerais (se o seu alertas.py usa isso)
-LIMITE_GASTO_DIARIO = 150  # em reais (ex: 150)
-LIMITE_GASTO_MENSAL = 2000  # em reais (ex: 2000)
+# Limites gerais (caso seu alertas.py use isso)
+LIMITE_GASTO_DIARIO = 150   # em reais
+LIMITE_GASTO_MENSAL = 2000  # em reais
 
 # =========================
 # CATEGORIAS (NOVO)
@@ -58,7 +58,6 @@ LIMITES_MENSAIS_GASTO = {
     "Assinaturas": 120,
     "Roupas": 200,
     "Investimentos": 300,
-    # "Outros": 0  # se não quiser alerta, não coloque aqui
 }
 
 # Quando avisar "tá chegando no limite"
