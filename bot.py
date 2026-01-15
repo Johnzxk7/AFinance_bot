@@ -21,7 +21,7 @@ from handlers.relatorio import job_virada_mes
 
 from handlers.rapido import processar_mensagem_rapida
 from handlers.alertas import job_alertas_diarios
-from handlers.atalhos import atalhos_como_mensagem  # ✅ NOVO
+from handlers.atalhos import atalhos_como_mensagem  # ✅ NOVO (atalhos)
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
@@ -78,7 +78,7 @@ async def post_init(app: Application):
             BotCommand("stats", "Estatísticas do mês"),
             BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
-            BotCommand("compara", "Atalho para comparar"),  # ✅ Alias oficial
+            BotCommand("compara", "Atalho para comparar"),
         ]
     )
 
@@ -114,20 +114,18 @@ def main():
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
     # ✅ NOVO: Atalhos como mensagem normal (sem /)
-    # IMPORTANTE: este handler tem que vir ANTES do processar_mensagem_rapida
+    # IMPORTANTE:
+    # - precisa vir ANTES do processar_mensagem_rapida
+    # - block=False pra não impedir o fluxo quando NÃO for atalho
     app.add_handler(
-        MessageHandler(
-            filters.TEXT
-            & ~filters.COMMAND
-            & filters.Regex(
-                r"^(start|stats|stat|estatisticas|estatistica|historico|hist|histórico|comparar|compara|comparacao|comparação)$"
-            ),
-            atalhos_como_mensagem,
-        )
+        MessageHandler(filters.TEXT & ~filters.COMMAND, atalhos_como_mensagem),
+        block=False,
     )
 
     # ====== Mensagens rápidas normais
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida)
+    )
 
     # ====== Jobs
     app.job_queue.run_monthly(
