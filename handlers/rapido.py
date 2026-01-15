@@ -48,8 +48,14 @@ def _norm(txt: str) -> str:
     return (txt or "").strip().lower()
 
 
+# =========================
+# CATEGORIA AUTOMÁTICA
+# =========================
 MAPA_GASTOS = {
-    "Investimentos": ["aporte", "invest", "tesouro", "selic", "cdb", "fii", "acao", "ação", "bitcoin", "cripto"],
+    "Investimentos": [
+        "invest", "investimento", "aporte", "tesouro", "selic", "cdb", "lci", "lca",
+        "fii", "acao", "ação", "bitcoin", "cripto"
+    ],
     "Alimentação": ["lanche", "almoço", "almoco", "janta", "pizza", "hamb", "ifood", "restaurante", "padaria"],
     "Mercado": ["mercado", "super", "atacadao", "atacadão", "assai", "carrefour", "feira"],
     "Transporte": ["uber", "99", "taxi", "gasolina", "ônibus", "onibus", "metro", "metrô"],
@@ -101,37 +107,85 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
 
     cmd = partes[0].lower()
 
-    # SALARIO
+    # =========================
+    # SALARIO (cria entrada + gasto investimento automático)
+    # =========================
     if cmd == "salario":
         if len(partes) < 2:
             await update.message.reply_text("Use: salario 1300 escritorio")
             return
 
-        valor = _parse_valor_centavos(partes[1])
-        if valor is None:
+        valor_salario = _parse_valor_centavos(partes[1])
+        if valor_salario is None:
             await update.message.reply_text("❌ Valor inválido. Ex: salario 1300 ou salario 1300,00")
             return
 
         descricao = " ".join(partes[2:]) if len(partes) > 2 else "salario"
-        categoria = _detectar_categoria("entrada", descricao)  # geralmente Salário
 
-        tid = inserir_transacao(update.effective_user.id, "entrada", valor, categoria, descricao)
-        tag = _tag_curta(update.effective_user.id, tid)
+        # ✅ salário sempre como categoria Salário
+        categoria_salario = "Salário"
 
-        salario_reais = valor / 100.0
-        invest_reais = float(INVESTIMENTO_SUGERIDO_FIXO)
-        perc = (invest_reais / salario_reais * 100) if salario_reais > 0 else 0.0
-
-        await update.message.reply_text(
-            "✅ Salário anotado!\n\n"
-            f"📝 {descricao} ({categoria})\n"
-            f"💸 {_fmt_centavos(valor)}\n"
-            f"📈 Investimento sugerido: R$ {invest_reais:.2f} ({perc:.1f}% do salário)\n"
-            f"🗓️ {_data_br()} - {tag}"
+        # 1) salva ENTRADA do salário
+        tid_entrada = inserir_transacao(
+            user_id=update.effective_user.id,
+            tipo="entrada",
+            valor_centavos=valor_salario,
+            categoria=categoria_salario,
+            descricao=descricao,
         )
+
+        # 2) cria automaticamente o INVESTIMENTO como GASTO (até no máximo o salário)
+        investimento_reais = float(INVESTIMENTO_SUGERIDO_FIXO)
+        investimento_centavos = int(round(investimento_reais * 100))
+
+        # se salário for menor que 800, investe somente o que dá
+        if investimento_centavos > valor_salario:
+            investimento_centavos = valor_salario
+
+        tid_invest = None
+        if investimento_centavos > 0:
+            tid_invest = inserir_transacao(
+                user_id=update.effective_user.id,
+                tipo="gasto",
+                valor_centavos=investimento_centavos,
+                categoria="Investimentos",
+                descricao="investimento automático",
+            )
+
+        tag = _tag_curta(update.effective_user.id, tid_entrada)
+
+        salario_reais = valor_salario / 100.0
+        invest_reais_final = investimento_centavos / 100.0
+        perc = (invest_reais_final / salario_reais * 100) if salario_reais > 0 else 0.0
+
+        msg = (
+            "✅ Salário anotado!\n\n"
+            f"📝 {descricao} ({categoria_salario})\n"
+            f"💸 {_fmt_centavos(valor_salario)}\n"
+        )
+
+        if tid_invest is not None:
+            msg += f"📈 Investimento automático: R$ {invest_reais_final:.2f} ({perc:.1f}%)\n"
+        else:
+            msg += "📈 Investimento automático: R$ 0.00 (0.0%)\n"
+
+        msg += f"🗓️ {_data_br()} - {tag}"
+
+        await update.message.reply_text(msg)
+
+        # opcional: alerta de categoria investimentos (se tiver limite)
+        if tid_invest is not None:
+            await checar_alerta_categoria(
+                context=context,
+                chat_id=update.effective_chat.id,
+                user_id=update.effective_user.id,
+                categoria="Investimentos",
+            )
         return
 
-    # ENTRADA / GASTO
+    # =========================
+    # ENTRADA / GASTO normal
+    # =========================
     if cmd not in ("entrada", "gasto"):
         return
 
