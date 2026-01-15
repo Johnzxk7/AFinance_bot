@@ -33,8 +33,11 @@ async def extrato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     /extrato
     /extrato 20
+    e também funciona pelo botão do menu
     """
     limite = 10
+
+    # se vier por comando /extrato 20
     if context.args:
         try:
             limite = int(context.args[0])
@@ -49,34 +52,34 @@ async def extrato(update: Update, context: ContextTypes.DEFAULT_TYPE):
     itens = ultimas_transacoes(user_id, limite=limite)
 
     if not itens:
-        await update.message.reply_text("📄 *Extrato*\n\nℹ️ Você ainda não tem lançamentos.", parse_mode="Markdown")
-        return
+        texto = "📄 *Extrato*\n\nℹ️ Você ainda não tem lançamentos."
+    else:
+        texto = f"📄 *Extrato* (últimos {len(itens)})\n\n"
+        for t in itens:
+            data = _data_curta(t.get("criado_em", ""))
+            tipo = _tipo_label(t.get("tipo", ""))
+            valor = float(t.get("valor", 0) or 0)
+            cat = t.get("categoria", "—") or "—"
+            desc = t.get("descricao", "—") or "—"
+            tid = t.get("id")
 
-    texto = f"📄 *Extrato* (últimos {len(itens)})\n\n"
+            texto += (
+                f"#{tid} • {data} • {tipo}\n"
+                f"📝 {desc} ({cat})\n"
+                f"💸 {_fmt(valor)}\n\n"
+            )
 
-    for t in itens:
-        data = _data_curta(t.get("criado_em", ""))
-        tipo = _tipo_label(t.get("tipo", ""))
-        valor = float(t.get("valor", 0) or 0)
-        cat = t.get("categoria", "—") or "—"
-        desc = t.get("descricao", "—") or "—"
-        tid = t.get("id")
+        texto += "🧹 Para apagar: `/apagar ID` (ex: `/apagar 12`)"
 
-        texto += (
-            f"#{tid} • {data} • {tipo}\n"
-            f"📝 {desc} ({cat})\n"
-            f"💸 {_fmt(valor)}\n\n"
-        )
-
-    texto += "🧹 Para apagar um lançamento: `/apagar ID` (ex: `/apagar 12`)"
-
-    await update.message.reply_text(texto, parse_mode="Markdown")
+    # ✅ responde certo em callback ou comando
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.message.reply_text(texto, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(texto, parse_mode="Markdown")
 
 
 async def apagar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /apagar 123
-    """
     if not context.args:
         await update.message.reply_text("Use: `/apagar ID`\nEx: `/apagar 12`", parse_mode="Markdown")
         return
