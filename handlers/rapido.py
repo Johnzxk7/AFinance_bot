@@ -1,23 +1,24 @@
+import hashlib
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import CATEGORIAS_GASTO, CATEGORIAS_ENTRADA
 from database.db import inserir_transacao
 from utils.alertas_inteligentes import checar_alerta_categoria
+
+TZ = ZoneInfo("America/Cuiaba")
 
 
 def _parse_valor_centavos(texto: str) -> int | None:
     if not texto:
         return None
-
-    t = texto.strip().lower().replace("r$", "").strip()
-    t = t.replace(" ", "")
-
+    t = texto.strip().lower().replace("r$", "").strip().replace(" ", "")
     if "," in t and "." in t:
         t = t.replace(".", "").replace(",", ".")
     else:
         t = t.replace(",", ".")
-
     try:
         v = float(t)
         if v <= 0:
@@ -28,24 +29,48 @@ def _parse_valor_centavos(texto: str) -> int | None:
 
 
 def _fmt_centavos(c: int) -> str:
-    reais = c // 100
-    centavos = c % 100
-    return f"R$ {reais:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {c/100:.2f}"
+
+
+def _tag_curta(user_id: int, transacao_id: int) -> str:
+    h = hashlib.md5(f"{user_id}-{transacao_id}".encode()).hexdigest()[:6]
+    return f"#A{h}"
+
+
+def _data_br() -> str:
+    return datetime.now(TZ).strftime("%d/%m/%Y")
+
+
+def _categoria_automatica(tipo: str, descricao: str) -> str:
+    d = (descricao or "").lower()
+
+    if tipo == "salario":
+        return "Salário"
+
+    if tipo == "entrada":
+        if "pix" in d:
+            return "Pix/Transferência"
+        return "Outros"
+
+    if tipo == "gasto":
+        # (sem “inteligência” aqui) padrão
+        return "Outros"
+
+    return "Outros"
 
 
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    texto = update.message.text.strip()
-    partes = texto.split()
+    partes = update.message.text.strip().split()
     if not partes:
         return
 
-    comando = partes[0].lower()
+    cmd = partes[0].lower()
 
-    # SALARIO
-    if comando == "salario":
+    # salario 2500 ...
+    if cmd == "salario":
         if len(partes) < 2:
             await update.message.reply_text("Use: salario 2500")
             return
@@ -55,67 +80,59 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             await update.message.reply_text("❌ Valor inválido. Ex: salario 2500 ou salario 2500,00")
             return
 
-        inserir_transacao(
-            user_id=update.effective_user.id,
-            tipo="entrada",
-            valor_centavos=valor,
-            categoria="Salário",
-            descricao="Salário",
+        descricao = " ".join(partes[2:]) if len(partes) > 2 else "salario"
+        categoria = _categoria_automatica("salario", descricao)
+
+        tid = inserir_transacao(update.effective_user.id, "entrada", valor, categoria, descricao)
+        tag = _tag_curta(update.effective_user.id, tid)
+
+        await update.message.reply_text(
+            "✅ Salário anotado!\n\n"
+            f"📝 {descricao} (Entrada)\n"
+            f"💸 {_fmt_centavos(valor)}\n"
+            f"🗓️ {_data_br()} - {tag}"
         )
-
-        await update.message.reply_text(f"✅ Salário registrado: {_fmt_centavos(valor)}")
         return
 
-    # GASTO / ENTRADA
-    if comando not in ("gasto", "entrada"):
+    # entrada/gasto 155 descricao...
+    if cmd not in ("entrada", "gasto"):
         return
 
-    if len(partes) < 3:
-        if comando == "gasto":
-            await update.message.reply_text("Use: gasto 35,50 Alimentação descrição opcional")
-        else:
-            await update.message.reply_text("Use: entrada 200 Pix/Transferência descrição opcional")
+    if len(partes) < 2:
+        await update.message.reply_text(f"Use: {cmd} 35 lanche")
         return
 
     valor = _parse_valor_centavos(partes[1])
     if valor is None:
-        await update.message.reply_text("❌ Valor inválido. Ex: gasto 35,50 Alimentação lanche")
+        await update.message.reply_text(f"❌ Valor inválido. Ex: {cmd} 35 lanche")
         return
 
-    categoria = partes[2]
-    descricao = " ".join(partes[3:]) if len(partes) > 3 else None
+    descricao = " ".join(partes[2:]) if len(partes) > 2 else cmd
+    categoria = _categoria_automatica(cmd, descricao)
 
-    if comando == "gasto":
-        if categoria not in CATEGORIAS_GASTO:
-            await update.message.reply_text(
-                "❌ Categoria inválida.\n\nCategorias de gasto:\n- " + "\n- ".join(CATEGORIAS_GASTO)
-            )
-            return
-        tipo_db = "gasto"
+    tipo_db = "entrada" if cmd == "entrada" else "gasto"
+    tid = inserir_transacao(update.effective_user.id, tipo_db, valor, categoria, descricao)
+    tag = _tag_curta(update.effective_user.id, tid)
 
+    if tipo_db == "entrada":
+        await update.message.reply_text(
+            "✅ Entrada anotada!\n\n"
+            f"📝 {descricao} (Entrada)\n"
+            f"💸 {_fmt_centavos(valor)}\n"
+            f"🗓️ {_data_br()} - {tag}"
+        )
     else:
-        if categoria not in CATEGORIAS_ENTRADA:
-            await update.message.reply_text(
-                "❌ Categoria inválida.\n\nCategorias de entrada:\n- " + "\n- ".join(CATEGORIAS_ENTRADA)
-            )
-            return
-        tipo_db = "entrada"
+        await update.message.reply_text(
+            "✅ Gasto anotado!\n\n"
+            f"📝 {descricao} (Gasto)\n"
+            f"💸 {_fmt_centavos(valor)}\n"
+            f"🗓️ {_data_br()} - {tag}"
+        )
 
-    inserir_transacao(
-        user_id=update.effective_user.id,
-        tipo=tipo_db,
-        valor_centavos=valor,
-        categoria=categoria,
-        descricao=descricao,
-    )
-
-    if tipo_db == "gasto":
-        await update.message.reply_text(f"✅ Gasto registrado: {_fmt_centavos(valor)}\nCategoria: {categoria}")
+        # alerta por categoria (só dispara se existir limite configurado pra categoria)
         await checar_alerta_categoria(
             context=context,
             chat_id=update.effective_chat.id,
             user_id=update.effective_user.id,
             categoria=categoria,
         )
-    else:
-        await update.message.reply_text(f"✅ Entrada registrada: {_fmt_centavos(valor)}\nCategoria: {categoria}")
