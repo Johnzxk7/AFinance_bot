@@ -1,6 +1,6 @@
 import os
 import datetime
-from telegram import BotCommand, Update
+from telegram import BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,38 +16,12 @@ from handlers.menu import menu_principal
 from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
+
 from handlers.relatorio import job_virada_mes
 from handlers.alertas import job_alertas_diarios
-
 from handlers.rapido import processar_mensagem_rapida
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
-
-
-class _FakeCallbackQuery:
-    def __init__(self, message, from_user):
-        self.message = message
-        self.from_user = from_user
-
-    async def answer(self):
-        return
-
-
-def _fake_callback_update(update: Update) -> Update:
-    update.callback_query = _FakeCallbackQuery(update.message, update.effective_user)
-    return update
-
-
-async def _stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await estatisticas(_fake_callback_update(update), context)
-
-
-async def _historico_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await historico_mensal(_fake_callback_update(update), context)
-
-
-async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await comparacao_mes_a_mes(_fake_callback_update(update), context)
 
 
 async def post_init(app: Application):
@@ -55,11 +29,16 @@ async def post_init(app: Application):
     await app.bot.set_my_commands(
         [
             BotCommand("start", "Abrir menu"),
-            BotCommand("stats", "Resumo do mês"),
-            BotCommand("historico", "Histórico do mês"),
+            BotCommand("stats", "Resumo financeiro"),
+            BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
         ]
     )
+
+
+async def _error_handler(update, context: ContextTypes.DEFAULT_TYPE):
+    # evita "No error handlers are registered"
+    print("❌ Erro no bot:", context.error)
 
 
 def main():
@@ -70,22 +49,23 @@ def main():
     criar_tabelas()
 
     app = Application.builder().token(token).post_init(post_init).build()
+    app.add_error_handler(_error_handler)
 
-    # comandos
+    # ✅ Comandos /xxx (agora funciona SEM fake callback)
     app.add_handler(CommandHandler("start", menu_principal))
-    app.add_handler(CommandHandler("stats", _stats_cmd))
-    app.add_handler(CommandHandler("historico", _historico_cmd))
-    app.add_handler(CommandHandler("comparar", _comparar_cmd))
+    app.add_handler(CommandHandler("stats", estatisticas))
+    app.add_handler(CommandHandler("historico", historico_mensal))
+    app.add_handler(CommandHandler("comparar", comparacao_mes_a_mes))
 
-    # botões do menu
+    # ✅ Botões do menu (callback_query)
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # mensagem rápida
+    # ✅ Mensagem rápida (entrada/gasto/salario)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
-    # jobs
+    # ✅ Jobs
     app.job_queue.run_monthly(
         callback=job_virada_mes,
         when=datetime.time(hour=9, minute=0),
