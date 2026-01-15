@@ -1,120 +1,146 @@
-# handlers/rapido.py
 from telegram import Update
 from telegram.ext import ContextTypes
-from datetime import datetime
-import random
 
-from config import INVESTIMENTO_FIXO
-from database.db import inserir_registro
+from config import CATEGORIAS_GASTO, CATEGORIAS_ENTRADA
+from database.db import inserir_transacao
+from utils.alertas_inteligentes import checar_alerta_categoria
 
-CATEGORIAS = {
-    "uber": "Transporte",
-    "99": "Transporte",
-    "taxi": "Transporte",
-    "ifood": "Alimentação",
-    "lanche": "Alimentação",
-    "almoço": "Alimentação",
-    "jantar": "Alimentação",
-    "mercado": "Mercado",
-    "luz": "Contas",
-    "água": "Contas",
-    "agua": "Contas",
-    "internet": "Contas",
-    "aluguel": "Moradia",
-    "investimento": "Investimento",
-    "aplicar": "Investimento",
-}
 
-def gerar_tag():
-    meio = "".join(random.choices("0123456789abcdef", k=5))
-    return f"#A{meio}D"
+def _parse_valor_centavos(texto: str) -> int | None:
+    """
+    Aceita:
+    10
+    10,50
+    10.50
+    R$ 10,50
+    """
+    if not texto:
+        return None
 
-def detectar_categoria(texto: str) -> str:
-    t = texto.lower()
-    for chave, cat in CATEGORIAS.items():
-        if chave in t:
-            return cat
-    return "Outros"
+    t = texto.strip().lower().replace("r$", "").strip()
+    t = t.replace(" ", "")
 
-def _fmt(v: float) -> str:
-    return f"R$ {v:,.2f}"
+    # 1.234,56 -> 1234.56
+    if "," in t and "." in t:
+        t = t.replace(".", "").replace(",", ".")
+    else:
+        t = t.replace(",", ".")
+
+    try:
+        v = float(t)
+        if v <= 0:
+            return None
+        return int(round(v * 100))
+    except ValueError:
+        return None
+
+
+def _fmt_centavos(c: int) -> str:
+    reais = c // 100
+    centavos = c % 100
+    reais_str = f"{reais:,}".replace(",", ".")
+    return f"R$ {reais_str},{centavos:02d}"
+
 
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Formatos:
+    - gasto 35,50 Alimentação lanche no trabalho
+    - entrada 200 Pix/Transferência cliente
+    - salario 2500
+    """
     if not update.message or not update.message.text:
         return
 
     texto = update.message.text.strip()
-    if not texto:
+    partes = texto.split()
+
+    if not partes:
         return
 
-    # ignora comandos (/start etc)
-    if texto.startswith("/"):
+    comando = partes[0].lower()
+
+    # =========================
+    # SALARIO
+    # =========================
+    if comando == "salario":
+        if len(partes) < 2:
+            await update.message.reply_text("Use: salario 2500")
+            return
+
+        valor = _parse_valor_centavos(partes[1])
+        if valor is None:
+            await update.message.reply_text("❌ Valor inválido. Ex: salario 2500 ou salario 2500,00")
+            return
+
+        inserir_transacao(
+            user_id=update.effective_user.id,
+            tipo="entrada",
+            valor_centavos=valor,
+            categoria="Salário",
+            descricao="Salário",
+        )
+
+        await update.message.reply_text(f"✅ Salário registrado: {_fmt_centavos(valor)}")
         return
 
-    partes = texto.split(maxsplit=2)
+    # =========================
+    # GASTO / ENTRADA
+    # =========================
+    if comando not in ("gasto", "entrada"):
+        return  # deixa outros textos passarem (menu etc já fica em outro handler)
+
     if len(partes) < 3:
-        return  # se não bater o formato, ignora (não atrapalha nada)
-
-    tipo_raw, valor_raw, descricao = partes[0].lower(), partes[1], partes[2]
-
-    mapa = {
-        "gasto": "gasto", "g": "gasto",
-        "entrada": "entrada", "e": "entrada",
-        "salario": "salario", "s": "salario",
-    }
-    if tipo_raw not in mapa:
+        if comando == "gasto":
+            await update.message.reply_text("Use: gasto 35,50 Alimentação descrição opcional")
+        else:
+            await update.message.reply_text("Use: entrada 200 Pix/Transferência descrição opcional")
         return
 
-    tipo = mapa[tipo_raw]
-
-    try:
-        valor = float(valor_raw.replace(",", "."))
-    except ValueError:
-        await update.message.reply_text("❌ Valor inválido. Ex: `gasto 12 uber`", parse_mode="Markdown")
+    valor = _parse_valor_centavos(partes[1])
+    if valor is None:
+        await update.message.reply_text("❌ Valor inválido. Ex: gasto 35,50 Alimentação lanche")
         return
 
-    user_id = update.effective_user.id
-    data_db = datetime.now().strftime("%Y-%m-%d")
-    data_msg = datetime.now().strftime("%d/%m/%Y")
-    tag = gerar_tag()
+    categoria = partes[2]
+    descricao = " ".join(partes[3:]) if len(partes) > 3 else None
 
-    if tipo == "gasto":
-        categoria = detectar_categoria(descricao)
-        inserir_registro(user_id, "gasto", valor, descricao, categoria, data_db, tag)
-        await update.message.reply_text(
-            f"✅ *Gasto anotado!*\n\n"
-            f"📝 {descricao} _({categoria})_\n"
-            f"💸 {_fmt(valor)}\n"
-            f"🗓️ {data_msg} - {tag}",
-            parse_mode="Markdown",
-        )
-        return
+    # valida categoria
+    if comando == "gasto":
+        if categoria not in CATEGORIAS_GASTO:
+            await update.message.reply_text(
+                "❌ Categoria inválida.\n\nCategorias de gasto:\n- " + "\n- ".join(CATEGORIAS_GASTO)
+            )
+            return
+        tipo_db = "gasto"
+    else:
+        if categoria not in CATEGORIAS_ENTRADA:
+            await update.message.reply_text(
+                "❌ Categoria inválida.\n\nCategorias de entrada:\n- " + "\n- ".join(CATEGORIAS_ENTRADA)
+            )
+            return
+        tipo_db = "entrada"
 
-    if tipo == "entrada":
-        inserir_registro(user_id, "entrada", valor, descricao, "Entrada", data_db, tag)
-        await update.message.reply_text(
-            f"✅ *Entrada anotada!*\n\n"
-            f"📝 {descricao} _(Entrada)_\n"
-            f"💸 {_fmt(valor)}\n"
-            f"🗓️ {data_msg} - {tag}",
-            parse_mode="Markdown",
-        )
-        return
-
-    # salario
-    inserir_registro(user_id, "salario", valor, descricao, "Renda", data_db, tag)
-
-    investimento = float(INVESTIMENTO_FIXO)
-    percentual = (investimento / valor) * 100 if valor > 0 else 0.0
-
-    # investimento automático como gasto
-    inserir_registro(user_id, "gasto", investimento, "Investimento automático", "Investimento", data_db, tag)
-
-    await update.message.reply_text(
-        f"✅ *Entrada anotada!*\n\n"
-        f"📝 {descricao} _(Renda)_\n"
-        f"💸 {_fmt(valor)}\n"
-        f"📈 Investir - {_fmt(investimento)} ({percentual:.1f}%)\n"
-        f"🗓️ {data_msg} - {tag}",
-        parse_mode="Markdown",
+    inserir_transacao(
+        user_id=update.effective_user.id,
+        tipo=tipo_db,
+        valor_centavos=valor,
+        categoria=categoria,
+        descricao=descricao,
     )
+
+    if tipo_db == "gasto":
+        await update.message.reply_text(
+            f"✅ Gasto registrado: {_fmt_centavos(valor)}\nCategoria: {categoria}"
+        )
+        # ✅ alerta inteligente por categoria
+        await checar_alerta_categoria(
+            context=context,
+            chat_id=update.effective_chat.id,
+            user_id=update.effective_user.id,
+            categoria=categoria,
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ Entrada registrada: {_fmt_centavos(valor)}\nCategoria: {categoria}"
+        )

@@ -1,166 +1,136 @@
-# database/db.py
+import os
 import sqlite3
-from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-DB_PATH = Path("database.db")
+TZ = ZoneInfo("America/Cuiaba")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "database.db")
 
 
-def conectar():
-    return sqlite3.connect(DB_PATH)
+def _conectar():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def criar_tabelas():
-    with conectar() as conn:
-        cur = conn.cursor()
+    conn = _conectar()
+    cur = conn.cursor()
 
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS registros (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                tipo TEXT NOT NULL,         -- 'entrada' | 'salario' | 'gasto'
-                valor REAL NOT NULL,
-                descricao TEXT NOT NULL,
-                categoria TEXT NOT NULL,
-                data TEXT NOT NULL,         -- 'YYYY-MM-DD'
-                tag TEXT NOT NULL
-            )
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_registros_user ON registros(user_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_registros_user_data ON registros(user_id, data)")
+    # Tabela principal de transações
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,       -- 'gasto' ou 'entrada'
+            valor_centavos INTEGER NOT NULL,
+            categoria TEXT NOT NULL,
+            descricao TEXT,
+            criado_em TEXT NOT NULL
+        )
+        """
+    )
 
-        # ✅ evita spam de alertas
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS alertas_enviados (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                chave TEXT NOT NULL,      -- ex: 'saldo_negativo', 'limite_gastos'
-                periodo TEXT NOT NULL,    -- ex: '2026-01' (mês/ano) ou '2026-01-15' (dia)
-                UNIQUE(user_id, chave, periodo)
-            )
-        """)
+    # Tabela para evitar spam de alertas (1 aviso por mês por categoria)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alertas_enviados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            ano INTEGER NOT NULL,
+            mes INTEGER NOT NULL,
+            categoria TEXT NOT NULL,
+            nivel TEXT NOT NULL, -- 'aviso' ou 'estourou'
+            enviado_em TEXT NOT NULL,
+            UNIQUE(user_id, ano, mes, categoria, nivel)
+        )
+        """
+    )
 
-        conn.commit()
-
-
-def inserir_registro(user_id: int, tipo: str, valor: float, descricao: str, categoria: str, data: str, tag: str):
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO registros (user_id, tipo, valor, descricao, categoria, data, tag)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (user_id, tipo, valor, descricao, categoria, data, tag))
-        conn.commit()
+    conn.commit()
+    conn.close()
 
 
-def listar_usuarios():
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT DISTINCT user_id FROM registros")
-        return [row[0] for row in cur.fetchall()]
+def inserir_transacao(user_id: int, tipo: str, valor_centavos: int, categoria: str, descricao: str | None):
+    conn = _conectar()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO transacoes (user_id, tipo, valor_centavos, categoria, descricao, criado_em)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            tipo,
+            valor_centavos,
+            categoria,
+            descricao,
+            datetime.now(TZ).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
-def resumo_mes(user_id: int, ano: int, mes: int):
-    mm = f"{mes:02d}"
-    yyyy = str(ano)
+def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) -> int:
+    """Retorna total em CENTAVOS do gasto da categoria no mês."""
+    conn = _conectar()
+    cur = conn.cursor()
 
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
-                SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos,
-                SUM(CASE WHEN categoria = 'Investimento' THEN valor ELSE 0 END) AS investimentos
-            FROM registros
-            WHERE user_id = ?
-              AND strftime('%m', date(data)) = ?
-              AND strftime('%Y', date(data)) = ?
-        """, (user_id, mm, yyyy))
-        entradas, gastos, investimentos = cur.fetchone()
-        return (float(entradas or 0), float(gastos or 0), float(investimentos or 0))
+    # YYYY-MM para filtrar
+    prefixo = f"{ano:04d}-{mes:02d}"
 
-
-def top_categorias_mes(user_id: int, ano: int, mes: int, limite: int = 5):
-    mm = f"{mes:02d}"
-    yyyy = str(ano)
-
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT categoria, SUM(valor) AS total
-            FROM registros
-            WHERE user_id = ?
-              AND tipo = 'gasto'
-              AND categoria != 'Investimento'
-              AND strftime('%m', date(data)) = ?
-              AND strftime('%Y', date(data)) = ?
-            GROUP BY categoria
-            ORDER BY total DESC
-            LIMIT ?
-        """, (user_id, mm, yyyy, limite))
-        return [(row[0], float(row[1] or 0)) for row in cur.fetchall()]
+    cur.execute(
+        """
+        SELECT COALESCE(SUM(valor_centavos), 0) as total
+        FROM transacoes
+        WHERE user_id = ?
+          AND tipo = 'gasto'
+          AND categoria = ?
+          AND substr(criado_em, 1, 7) = ?
+        """,
+        (user_id, categoria, prefixo),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return int(row["total"] or 0)
 
 
-def saldo_acumulado(user_id: int, ate_data: str | None = None) -> float:
-    with conectar() as conn:
-        cur = conn.cursor()
-
-        if ate_data:
-            cur.execute("""
-                SELECT
-                    SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
-                    SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos
-                FROM registros
-                WHERE user_id = ?
-                  AND date(data) <= date(?)
-            """, (user_id, ate_data))
-        else:
-            cur.execute("""
-                SELECT
-                    SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
-                    SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos
-                FROM registros
-                WHERE user_id = ?
-            """, (user_id,))
-
-        entradas, gastos = cur.fetchone()
-        entradas = float(entradas or 0)
-        gastos = float(gastos or 0)
-        return entradas - gastos
+def alerta_ja_enviado(user_id: int, ano: int, mes: int, categoria: str, nivel: str) -> bool:
+    conn = _conectar()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT 1 FROM alertas_enviados
+        WHERE user_id = ? AND ano = ? AND mes = ? AND categoria = ? AND nivel = ?
+        LIMIT 1
+        """,
+        (user_id, ano, mes, categoria, nivel),
+    )
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists
 
 
-def buscar_resumo_mensal(user_id: int):
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 
-                strftime('%m/%Y', date(data)) AS mes,
-                SUM(CASE WHEN tipo IN ('entrada','salario') THEN valor ELSE 0 END) AS entradas,
-                SUM(CASE WHEN tipo = 'gasto' THEN valor ELSE 0 END) AS gastos,
-                SUM(CASE WHEN categoria = 'Investimento' THEN valor ELSE 0 END) AS investimentos
-            FROM registros
-            WHERE user_id = ?
-            GROUP BY strftime('%Y-%m', date(data))
-            ORDER BY strftime('%Y-%m', date(data)) DESC
-        """, (user_id,))
-        return cur.fetchall()
-
-
-def alerta_ja_enviado(user_id: int, chave: str, periodo: str) -> bool:
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 1 FROM alertas_enviados
-            WHERE user_id = ? AND chave = ? AND periodo = ?
-            LIMIT 1
-        """, (user_id, chave, periodo))
-        return cur.fetchone() is not None
-
-
-def marcar_alerta_enviado(user_id: int, chave: str, periodo: str):
-    with conectar() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO alertas_enviados (user_id, chave, periodo)
-            VALUES (?, ?, ?)
-        """, (user_id, chave, periodo))
-        conn.commit()
+def registrar_alerta(user_id: int, ano: int, mes: int, categoria: str, nivel: str):
+    conn = _conectar()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT OR IGNORE INTO alertas_enviados (user_id, ano, mes, categoria, nivel, enviado_em)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            ano,
+            mes,
+            categoria,
+            nivel,
+            datetime.now(TZ).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()

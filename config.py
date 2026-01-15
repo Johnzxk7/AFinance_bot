@@ -1,16 +1,56 @@
-# config.py
-import os
-
-TOKEN = os.getenv("BOT_TOKEN")
-
-# salário -> investimento automático
-INVESTIMENTO_FIXO = 800.0  # mude aqui quando quiser
-
-# ALERTAS
-ALERTA_SALDO_NEGATIVO = True
-ALERTA_LIMITE_GASTOS = True
-LIMITE_GASTOS_MENSAL = 3000.0  # mude aqui (ex: 2500)
-
-# horário do alerta diário (servidor)
-HORA_ALERTA_DIARIO = 20
+# =========================
+# ALERTAS DIÁRIOS (já existia)
+# =========================
+HORA_ALERTA_DIARIO = 8
 MINUTO_ALERTA_DIARIO = 0
+
+# =========================
+# CATEGORIAS (NOVO)
+# =========================
+# Você pode mudar aqui quando quiser.
+CATEGORIAS_GASTO = [
+    "Alimentação",
+    "Mercado",
+    "Transporte",
+    "Casa",
+    "Contas",
+    "Saúde",
+    "Educação",
+    "Lazer",
+    "Assinaturas",
+    "Roupas",
+    "Investimentos",
+    "Outros",
+]
+
+CATEGORIAS_ENTRADA = [
+    "Salário",
+    "Freela",
+    "Pix/Transferência",
+    "Vendas",
+    "Reembolso",
+    "Outros",
+]
+
+# =========================
+# ALERTAS INTELIGENTES (NOVO)
+# =========================
+# Alertas por categoria (mensal).
+# Valores em REAIS.
+LIMITES_MENSAIS_GASTO = {
+    "Alimentação": 600,
+    "Mercado": 900,
+    "Transporte": 250,
+    "Casa": 400,
+    "Contas": 700,
+    "Saúde": 250,
+    "Educação": 200,
+    "Lazer": 200,
+    "Assinaturas": 120,
+    "Roupas": 200,
+    "Investimentos": 300,
+    # "Outros": 0  # se não tiver limite, nem coloca aqui
+}
+
+# Quando avisar "tá chegando no limite"
+PERCENTUAL_AVISO = 0.80  # 80%
