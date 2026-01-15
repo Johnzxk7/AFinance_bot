@@ -17,7 +17,7 @@ from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
 
-from handlers.relatorio import job_virada_mes
+from handlers.relatorio import job_virada_mes, relatorio_mes_passado, relatorio_mes_atual
 from handlers.alertas import job_alertas_diarios
 from handlers.rapido import processar_mensagem_rapida
 
@@ -32,12 +32,12 @@ async def post_init(app: Application):
             BotCommand("stats", "Resumo financeiro"),
             BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
+            BotCommand("relatorio", "Relatório do mês passado"),
         ]
     )
 
 
 async def _error_handler(update, context: ContextTypes.DEFAULT_TYPE):
-    # evita "No error handlers are registered"
     print("❌ Erro no bot:", context.error)
 
 
@@ -51,21 +51,25 @@ def main():
     app = Application.builder().token(token).post_init(post_init).build()
     app.add_error_handler(_error_handler)
 
-    # ✅ Comandos /xxx (agora funciona SEM fake callback)
+    # comandos
     app.add_handler(CommandHandler("start", menu_principal))
     app.add_handler(CommandHandler("stats", estatisticas))
     app.add_handler(CommandHandler("historico", historico_mensal))
     app.add_handler(CommandHandler("comparar", comparacao_mes_a_mes))
 
-    # ✅ Botões do menu (callback_query)
+    # ✅ TESTES do relatório
+    app.add_handler(CommandHandler("relatorio", relatorio_mes_passado))
+    app.add_handler(CommandHandler("relatorio_atual", relatorio_mes_atual))
+
+    # botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ✅ Mensagem rápida (entrada/gasto/salario)
+    # mensagens rápidas
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
-    # ✅ Jobs
+    # jobs
     app.job_queue.run_monthly(
         callback=job_virada_mes,
         when=datetime.time(hour=9, minute=0),

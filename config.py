@@ -34,5 +34,4 @@ LIMITES_MENSAIS_GASTO = {
     "Lazer": 200,
     "Assinaturas": 120,
     "Roupas": 200,
-    "Investimentos": 300,
 }

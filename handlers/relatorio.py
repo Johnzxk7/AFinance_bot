@@ -1,77 +1,85 @@
-from datetime import datetime, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from database.db import listar_usuarios, resumo_mes, top_categorias_mes, saldo_acumulado
+from telegram.ext import ContextTypes
 
-MESES = {
-    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril", 5: "Maio", 6: "Junho",
-    7: "Julho", 8: "Agosto", 9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro"
-}
+from database.db import listar_usuarios, resumo_mes, top_categorias_mes
 
-def _mes_anterior(ano: int, mes: int):
-    if mes == 1:
-        return (ano - 1, 12)
-    return (ano, mes - 1)
+TZ = ZoneInfo("America/Cuiaba")
 
-def _ultimo_dia_mes(ano: int, mes: int) -> str:
-    if mes == 12:
-        proximo = datetime(ano + 1, 1, 1)
-    else:
-        proximo = datetime(ano, mes + 1, 1)
-    ultimo = proximo - timedelta(days=1)
-    return ultimo.strftime("%Y-%m-%d")
+MESES = [
+    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+]
+
 
 def _fmt(v: float) -> str:
     return f"R$ {v:,.2f}"
 
-def _delta(atual: float, anterior: float) -> str:
-    diff = atual - anterior
-    if anterior == 0:
-        if atual == 0:
-            return "➡️ 0.0%"
-        return "⬆️ ∞"
-    pct = (diff / anterior) * 100
-    seta = "⬆️" if diff > 0 else ("⬇️" if diff < 0 else "➡️")
-    sinal = "+" if pct > 0 else ""
-    return f"{seta} {sinal}{pct:.1f}%"
+
+def _mes_anterior(ano: int, mes: int):
+    if mes == 1:
+        return ano - 1, 12
+    return ano, mes - 1
+
 
 def montar_relatorio(user_id: int, ano: int, mes: int) -> str:
-    ent, gast, inv = resumo_mes(user_id, ano, mes)
-    saldo = ent - gast
+    nome_mes = MESES[mes - 1]
 
-    ano_ant, mes_ant = _mes_anterior(ano, mes)
-    ent2, gast2, inv2 = resumo_mes(user_id, ano_ant, mes_ant)
-    saldo2 = ent2 - gast2
+    entradas, gastos_totais, investimentos = resumo_mes(user_id, ano, mes)
+    saldo = entradas - gastos_totais
 
-    top = top_categorias_mes(user_id, ano, mes, limite=5)
-    top_txt = "\n".join([f"• {c}: {_fmt(v)}" for c, v in top]) if top else "Nenhum gasto registrado."
+    # Sem registros?
+    if entradas == 0 and gastos_totais == 0 and investimentos == 0:
+        return (
+            f"📅 *Relatório Mensal*\n\n"
+            f"🗓️ {nome_mes}/{ano}\n"
+            f"ℹ️ Não há registros nesse mês."
+        )
 
-    # ✅ saldo acumulado até o fim do mês fechado
-    ate = _ultimo_dia_mes(ano, mes)
-    saldo_total = saldo_acumulado(user_id, ate_data=ate)
+    tops = top_categorias_mes(user_id, ano, mes, limite=5)
 
-    return (
-        f"🧾 *Fechamento do mês — {MESES[mes]}/{ano}*\n\n"
-        f"💰 Entradas: {_fmt(ent)}\n"
-        f"💸 Gastos: {_fmt(gast)}\n"
-        f"📈 Investimentos: {_fmt(inv)}\n"
-        f"💼 Saldo do mês: {_fmt(saldo)}\n"
-        f"📦 *Saldo acumulado (até {MESES[mes]}/{ano}):* {_fmt(saldo_total)}\n\n"
-        f"📈 *Comparação com {MESES[mes_ant]}/{ano_ant}*\n"
-        f"• Entradas: {_delta(ent, ent2)}\n"
-        f"• Gastos: {_delta(gast, gast2)}\n"
-        f"• Investimentos: {_delta(inv, inv2)}\n"
-        f"• Saldo: {_delta(saldo, saldo2)}\n\n"
-        f"🏷️ *Top categorias do mês*\n"
-        f"{top_txt}"
+    texto = (
+        f"📅 *Relatório Mensal*\n\n"
+        f"🗓️ {nome_mes}/{ano}\n\n"
+        f"💰 Entradas: {_fmt(entradas)}\n"
+        f"💸 Gastos Totais: {_fmt(gastos_totais)}\n"
+        f"📈 Investimentos: {_fmt(investimentos)}\n"
+        f"💼 Saldo: {_fmt(saldo)}\n"
     )
 
-async def job_virada_mes(context):
-    agora = datetime.now()
-    ano_ref, mes_ref = _mes_anterior(agora.year, agora.month)
+    if tops:
+        texto += "\n🏷️ *Principais Gastos:*\n"
+        for cat, total in tops:
+            texto += f"• {cat}: {_fmt(total)}\n"
+
+    return texto
+
+
+# ✅ JOB: roda dia 1 e envia o relatório do MÊS PASSADO
+async def job_virada_mes(context: ContextTypes.DEFAULT_TYPE):
+    agora = datetime.now(TZ)
+    ano_passado, mes_passado = _mes_anterior(agora.year, agora.month)
 
     for user_id in listar_usuarios():
         try:
-            texto = montar_relatorio(user_id, ano_ref, mes_ref)
+            texto = montar_relatorio(user_id, ano_passado, mes_passado)
             await context.bot.send_message(chat_id=user_id, text=texto, parse_mode="Markdown")
         except Exception:
             pass
+
+
+# ✅ COMANDO MANUAL: manda relatório do mês passado pra quem pediu (teste)
+async def relatorio_mes_passado(update, context: ContextTypes.DEFAULT_TYPE):
+    agora = datetime.now(TZ)
+    ano_passado, mes_passado = _mes_anterior(agora.year, agora.month)
+
+    texto = montar_relatorio(update.effective_user.id, ano_passado, mes_passado)
+    await update.message.reply_text(texto, parse_mode="Markdown")
+
+
+# ✅ COMANDO EXTRA: relatório do mês atual (só pra conferência)
+async def relatorio_mes_atual(update, context: ContextTypes.DEFAULT_TYPE):
+    agora = datetime.now(TZ)
+    texto = montar_relatorio(update.effective_user.id, agora.year, agora.month)
+    await update.message.reply_text(texto, parse_mode="Markdown")
