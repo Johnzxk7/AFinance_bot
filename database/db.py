@@ -96,7 +96,7 @@ def listar_usuarios():
 def resumo_mes(user_id: int, ano: int, mes: int):
     """
     Retorna: entradas, gastos, investimentos (em REAIS)
-    (mantém compatível com handlers antigos)
+    - compatível com handlers/alertas.py e handlers/relatorio.py
     """
     prefixo = f"{ano:04d}-{mes:02d}"
 
@@ -176,7 +176,7 @@ def top_categorias_mes(user_id: int, ano: int, mes: int, tipo: str = "gasto", li
 # =========================
 def saldo_acumulado(user_id: int) -> float:
     """
-    Saldo total da vida inteira: entradas - gastos (em REAIS)
+    Saldo total: entradas - gastos (em REAIS)
     """
     conn = _conectar()
     cur = conn.cursor()
@@ -266,3 +266,38 @@ def total_gasto_categoria_mes(user_id: int, categoria: str, ano: int, mes: int) 
     total = float(cur.fetchone()["total"] or 0)
     conn.close()
     return total
+
+
+# =========================================================
+# ✅ COMPATIBILIDADE (NOMES ANTIGOS DO SEU PROJETO)
+# =========================================================
+def buscar_resumo_mensal(user_id: int, ano: int, mes: int):
+    """
+    Alias para manter handlers/historico.py funcionando.
+    Retorna o mesmo formato do resumo_mes: (entradas, gastos, investimentos)
+    """
+    return resumo_mes(user_id, ano, mes)
+
+
+def buscar_transacoes_mensal(user_id: int, ano: int, mes: int):
+    """
+    Se algum handler antigo usar isso, aqui está o alias.
+    Retorna lista de transações do mês (últimas primeiro).
+    """
+    prefixo = f"{ano:04d}-{mes:02d}"
+
+    conn = _conectar()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id, tipo, valor, categoria, descricao, criado_em
+        FROM transacoes
+        WHERE user_id = ?
+          AND substr(criado_em, 1, 7) = ?
+        ORDER BY criado_em DESC
+        """,
+        (user_id, prefixo),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
