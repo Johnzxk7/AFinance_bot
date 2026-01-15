@@ -21,7 +21,7 @@ from handlers.relatorio import job_virada_mes
 
 from handlers.rapido import processar_mensagem_rapida
 from handlers.alertas import job_alertas_diarios
-from handlers.atalhos import atalhos_como_mensagem  # ✅ NOVO (atalhos)
+from handlers.atalhos import atalhos_como_mensagem
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
@@ -67,7 +67,7 @@ async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# post_init (PTB v20+)
+# post_init
 # =========================
 async def post_init(app: Application):
     criar_tabelas()
@@ -104,27 +104,28 @@ def main():
     app.add_handler(CommandHandler("stats", _stats_cmd))
     app.add_handler(CommandHandler("historico", _historico_cmd))
     app.add_handler(CommandHandler("comparar", _comparar_cmd))
-
-    # ✅ Alias do comando
-    app.add_handler(CommandHandler("compara", _comparar_cmd))
+    app.add_handler(CommandHandler("compara", _comparar_cmd))  # alias
 
     # ====== Callbacks dos botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
-    # ✅ NOVO: Atalhos como mensagem normal (sem /)
-    # IMPORTANTE:
-    # - precisa vir ANTES do processar_mensagem_rapida
-    # - block=False pra não impedir o fluxo quando NÃO for atalho
+    # ✅ Atalhos como mensagem (sem /)
+    # "menu", "resumo", "mes", "comparacao", etc
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, atalhos_como_mensagem),
-        block=False,
+        MessageHandler(filters.TEXT & ~filters.COMMAND, atalhos_como_mensagem)
     )
 
-    # ====== Mensagens rápidas normais
+    # ✅ Mensagens rápidas normais
+    # Aqui a gente EXCLUI os atalhos pra não disparar junto.
+    atalhos_regex = r"(?i)^\s*(start|menu|stats|stat|resumo|estatistica|estatisticas|historico|hist|mes|mês|comparar|compara|comparacao|comparação)\s*$"
+
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND & ~filters.Regex(atalhos_regex),
+            processar_mensagem_rapida,
+        )
     )
 
     # ====== Jobs
