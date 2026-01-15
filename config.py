@@ -5,48 +5,23 @@ HORA_ALERTA_DIARIO = 8
 MINUTO_ALERTA_DIARIO = 0
 
 # =========================
-# FLAGS (compatibilidade + controle)
+# FLAGS
 # =========================
 ALERTA_SALDO_NEGATIVO = True
 ALERTA_LIMITE_GASTOS = True
-ALERTA_CATEGORIAS = True  # ✅ novo: alerta por categoria
+ALERTA_CATEGORIAS = True
 
 # =========================
-# LIMITES GERAIS
+# LIMITES
 # =========================
-LIMITE_GASTOS_MENSAL = 2000  # em reais (compatível com seu handlers/alertas.py)
-PERCENTUAL_AVISO = 0.80      # 80% do limite
+LIMITE_GASTOS_MENSAL = 2000
+PERCENTUAL_AVISO = 0.80
+
+# ✅ INVESTIMENTO AUTOMÁTICO (PARA MENSAGEM DO SALÁRIO)
+INVESTIMENTO_SUGERIDO_FIXO = 800  # << você pediu 800
 
 # =========================
-# CATEGORIAS (NOVO)
-# =========================
-CATEGORIAS_GASTO = [
-    "Alimentação",
-    "Mercado",
-    "Transporte",
-    "Casa",
-    "Contas",
-    "Saúde",
-    "Educação",
-    "Lazer",
-    "Assinaturas",
-    "Roupas",
-    "Investimentos",
-    "Outros",
-]
-
-CATEGORIAS_ENTRADA = [
-    "Salário",
-    "Freela",
-    "Pix/Transferência",
-    "Vendas",
-    "Reembolso",
-    "Outros",
-]
-
-# =========================
-# LIMITES MENSAIS POR CATEGORIA (alerta inteligente)
-# Valores em REAIS
+# LIMITES POR CATEGORIA (alerta inteligente)
 # =========================
 LIMITES_MENSAIS_GASTO = {
     "Alimentação": 600,

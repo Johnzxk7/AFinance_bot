@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from config import INVESTIMENTO_SUGERIDO_FIXO
 from database.db import inserir_transacao
 from utils.alertas_inteligentes import checar_alerta_categoria
 
@@ -16,8 +17,6 @@ def _parse_valor_centavos(texto: str) -> int | None:
         return None
 
     t = texto.strip().lower().replace("r$", "").strip().replace(" ", "")
-
-    # 1.234,56 -> 1234.56
     if "," in t and "." in t:
         t = t.replace(".", "").replace(",", ".")
     else:
@@ -33,7 +32,6 @@ def _parse_valor_centavos(texto: str) -> int | None:
 
 
 def _fmt_centavos(c: int) -> str:
-    # você pediu nesse padrão "R$ 12.00"
     return f"R$ {c/100:.2f}"
 
 
@@ -50,68 +48,26 @@ def _norm(txt: str) -> str:
     return (txt or "").strip().lower()
 
 
-# =========================
-# CATEGORIA AUTOMÁTICA (melhorada)
-# =========================
 MAPA_GASTOS = {
-    "Investimentos": [
-        "invest", "investimento", "investimentos", "aporte", "tesouro", "selic",
-        "cdb", "lci", "lca", "fii", "acao", "ação", "bitcoin", "cripto", "renda fixa"
-    ],
-    "Alimentação": [
-        "lanche", "lanch", "almoço", "almoco", "janta", "pizza", "hamb", "ifood",
-        "restaurante", "padaria", "cafe", "açai", "acai", "bar"
-    ],
-    "Mercado": [
-        "mercado", "supermerc", "atacadao", "atacadão", "assai", "açougue", "acougue",
-        "hortifruti", "feira", "carrefour"
-    ],
-    "Transporte": [
-        "uber", "99", "taxi", "gasolina", "combust", "etanol",
-        "onibus", "ônibus", "metro", "metrô", "passagem", "estacion"
-    ],
-    "Casa": [
-        "aluguel", "condominio", "condomínio", "reforma", "casa",
-        "limpeza", "faxina", "manutenc"
-    ],
-    "Contas": [
-        "energia", "luz", "agua", "água", "internet", "wifi", "telefone",
-        "fatura", "boleto", "cartao", "cartão"
-    ],
-    "Saúde": [
-        "farmacia", "farmácia", "remedio", "remédio", "consulta", "hospital",
-        "exame", "dentista", "plano"
-    ],
-    "Educação": [
-        "curso", "faculdade", "livro", "aula", "mensalidade", "udemy", "alura"
-    ],
-    "Lazer": [
-        "cinema", "show", "jogo", "steam", "viagem", "hotel"
-    ],
-    "Assinaturas": [
-        "assinatura", "prime", "netflix", "spotify", "youtube", "disney", "hbo"
-    ],
-    "Roupas": [
-        "roupa", "tenis", "tênis", "sapato", "camisa", "calça"
-    ],
+    "Investimentos": ["aporte", "invest", "tesouro", "selic", "cdb", "fii", "acao", "ação", "bitcoin", "cripto"],
+    "Alimentação": ["lanche", "almoço", "almoco", "janta", "pizza", "hamb", "ifood", "restaurante", "padaria"],
+    "Mercado": ["mercado", "super", "atacadao", "atacadão", "assai", "carrefour", "feira"],
+    "Transporte": ["uber", "99", "taxi", "gasolina", "ônibus", "onibus", "metro", "metrô"],
+    "Casa": ["aluguel", "condominio", "condomínio", "reforma", "faxina"],
+    "Contas": ["energia", "luz", "agua", "água", "internet", "telefone", "fatura", "boleto"],
+    "Saúde": ["farmacia", "farmácia", "remedio", "remédio", "consulta", "exame"],
+    "Educação": ["curso", "faculdade", "livro", "alura", "udemy"],
+    "Lazer": ["cinema", "show", "steam", "viagem", "hotel"],
+    "Assinaturas": ["assinatura", "netflix", "spotify", "prime", "disney", "hbo"],
+    "Roupas": ["roupa", "tenis", "tênis", "sapato"],
 }
 
 MAPA_ENTRADAS = {
-    "Salário": [
-        "salario", "salário", "pagamento", "holerite", "empresa", "escritorio", "escritório"
-    ],
-    "Freela": [
-        "freela", "cliente", "projeto", "servico", "serviço", "job"
-    ],
-    "Pix/Transferência": [
-        "pix", "transfer", "ted", "doc", "deposito", "depósito"
-    ],
-    "Vendas": [
-        "venda", "vendido", "olx", "enjoei", "mercado livre", "ml"
-    ],
-    "Reembolso": [
-        "reembolso", "devolucao", "devolução", "estorno"
-    ],
+    "Salário": ["salario", "salário", "pagamento", "holerite", "empresa", "escritorio", "escritório"],
+    "Freela": ["freela", "cliente", "job", "projeto", "servico", "serviço"],
+    "Pix/Transferência": ["pix", "transfer", "ted", "doc", "deposito", "depósito"],
+    "Vendas": ["venda", "vendido", "olx", "enjoei", "mercado livre"],
+    "Reembolso": ["reembolso", "devolucao", "devolução", "estorno"],
 }
 
 
@@ -136,13 +92,6 @@ def _detectar_categoria(tipo: str, descricao: str) -> str:
 
 
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    ✅ Formato final:
-      salario 1300 escritorio
-      entrada 155 pix nubank
-      gasto 35 uber
-      gasto 120 mercado atacadao
-    """
     if not update.message or not update.message.text:
         return
 
@@ -164,15 +113,20 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             return
 
         descricao = " ".join(partes[2:]) if len(partes) > 2 else "salario"
-        categoria = _detectar_categoria("entrada", descricao)  # deve cair em Salário pela palavra
+        categoria = _detectar_categoria("entrada", descricao)  # geralmente Salário
 
         tid = inserir_transacao(update.effective_user.id, "entrada", valor, categoria, descricao)
         tag = _tag_curta(update.effective_user.id, tid)
+
+        salario_reais = valor / 100.0
+        invest_reais = float(INVESTIMENTO_SUGERIDO_FIXO)
+        perc = (invest_reais / salario_reais * 100) if salario_reais > 0 else 0.0
 
         await update.message.reply_text(
             "✅ Salário anotado!\n\n"
             f"📝 {descricao} ({categoria})\n"
             f"💸 {_fmt_centavos(valor)}\n"
+            f"📈 Investimento sugerido: R$ {invest_reais:.2f} ({perc:.1f}% do salário)\n"
             f"🗓️ {_data_br()} - {tag}"
         )
         return
@@ -212,7 +166,6 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             f"🗓️ {_data_br()} - {tag}"
         )
 
-        # alertas por categoria (só dispara se existir limite no config)
         await checar_alerta_categoria(
             context=context,
             chat_id=update.effective_chat.id,

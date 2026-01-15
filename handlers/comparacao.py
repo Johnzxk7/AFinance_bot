@@ -8,6 +8,11 @@ from database.db import resumo_mes
 
 TZ = ZoneInfo("America/Cuiaba")
 
+MESES = [
+    "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+    "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+]
+
 
 def _fmt(v: float) -> str:
     return f"R$ {v:,.2f}"
@@ -19,27 +24,46 @@ def _mes_anterior(ano: int, mes: int):
     return ano, mes - 1
 
 
+def _tem_dados(user_id: int, ano: int, mes: int) -> bool:
+    e, g, i = resumo_mes(user_id, ano, mes)
+    return (e > 0) or (g > 0) or (i > 0)
+
+
 async def comparacao_mes_a_mes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     agora = datetime.now(TZ)
     ano, mes = agora.year, agora.month
-    a2, m2 = _mes_anterior(ano, mes)
+    nome_mes = MESES[mes - 1]
 
     user_id = update.effective_user.id
 
-    e1, g1, i1 = resumo_mes(user_id, ano, mes)
-    e2, g2, i2 = resumo_mes(user_id, a2, m2)
+    entradas, gastos, investimentos = resumo_mes(user_id, ano, mes)
+    saldo = entradas - gastos
 
     texto = (
         f"📈 *Comparação mês a mês*\n\n"
-        f"*{mes:02d}/{ano}*\n"
-        f"💰 Entradas: {_fmt(e1)}\n"
-        f"💸 Gastos: {_fmt(g1)}\n"
-        f"📈 Investimentos: {_fmt(i1)}\n\n"
-        f"*{m2:02d}/{a2}*\n"
-        f"💰 Entradas: {_fmt(e2)}\n"
-        f"💸 Gastos: {_fmt(g2)}\n"
-        f"📈 Investimentos: {_fmt(i2)}\n"
+        f"🗓️ {nome_mes}/{ano}\n"
+        f"💰 Entradas: {_fmt(entradas)}\n"
+        f"💸 Gastos: {_fmt(gastos)}\n"
+        f"📈 Investimentos: {_fmt(investimentos)}\n"
+        f"💼 Saldo: {_fmt(saldo)}\n\n"
     )
+
+    # se não tiver registros em 2 meses, só mostra o aviso
+    a2, m2 = _mes_anterior(ano, mes)
+    if not _tem_dados(user_id, a2, m2):
+        texto += "ℹ️ Registre dados em pelo menos 2 meses para comparar."
+    else:
+        nome2 = MESES[m2 - 1]
+        e2, g2, i2 = resumo_mes(user_id, a2, m2)
+        s2 = e2 - g2
+
+        texto += (
+            f"🗓️ {nome2}/{a2}\n"
+            f"💰 Entradas: {_fmt(e2)}\n"
+            f"💸 Gastos: {_fmt(g2)}\n"
+            f"📈 Investimentos: {_fmt(i2)}\n"
+            f"💼 Saldo: {_fmt(s2)}\n"
+        )
 
     if update.callback_query:
         await update.callback_query.answer()
