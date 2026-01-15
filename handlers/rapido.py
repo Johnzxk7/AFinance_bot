@@ -7,20 +7,12 @@ from utils.alertas_inteligentes import checar_alerta_categoria
 
 
 def _parse_valor_centavos(texto: str) -> int | None:
-    """
-    Aceita:
-    10
-    10,50
-    10.50
-    R$ 10,50
-    """
     if not texto:
         return None
 
     t = texto.strip().lower().replace("r$", "").strip()
     t = t.replace(" ", "")
 
-    # 1.234,56 -> 1234.56
     if "," in t and "." in t:
         t = t.replace(".", "").replace(",", ".")
     else:
@@ -38,31 +30,21 @@ def _parse_valor_centavos(texto: str) -> int | None:
 def _fmt_centavos(c: int) -> str:
     reais = c // 100
     centavos = c % 100
-    reais_str = f"{reais:,}".replace(",", ".")
-    return f"R$ {reais_str},{centavos:02d}"
+    return f"R$ {reais:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Formatos:
-    - gasto 35,50 Alimentação lanche no trabalho
-    - entrada 200 Pix/Transferência cliente
-    - salario 2500
-    """
     if not update.message or not update.message.text:
         return
 
     texto = update.message.text.strip()
     partes = texto.split()
-
     if not partes:
         return
 
     comando = partes[0].lower()
 
-    # =========================
     # SALARIO
-    # =========================
     if comando == "salario":
         if len(partes) < 2:
             await update.message.reply_text("Use: salario 2500")
@@ -84,11 +66,9 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text(f"✅ Salário registrado: {_fmt_centavos(valor)}")
         return
 
-    # =========================
     # GASTO / ENTRADA
-    # =========================
     if comando not in ("gasto", "entrada"):
-        return  # deixa outros textos passarem (menu etc já fica em outro handler)
+        return
 
     if len(partes) < 3:
         if comando == "gasto":
@@ -105,7 +85,6 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
     categoria = partes[2]
     descricao = " ".join(partes[3:]) if len(partes) > 3 else None
 
-    # valida categoria
     if comando == "gasto":
         if categoria not in CATEGORIAS_GASTO:
             await update.message.reply_text(
@@ -113,6 +92,7 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             )
             return
         tipo_db = "gasto"
+
     else:
         if categoria not in CATEGORIAS_ENTRADA:
             await update.message.reply_text(
@@ -130,10 +110,7 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
     )
 
     if tipo_db == "gasto":
-        await update.message.reply_text(
-            f"✅ Gasto registrado: {_fmt_centavos(valor)}\nCategoria: {categoria}"
-        )
-        # ✅ alerta inteligente por categoria
+        await update.message.reply_text(f"✅ Gasto registrado: {_fmt_centavos(valor)}\nCategoria: {categoria}")
         await checar_alerta_categoria(
             context=context,
             chat_id=update.effective_chat.id,
@@ -141,6 +118,4 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             categoria=categoria,
         )
     else:
-        await update.message.reply_text(
-            f"✅ Entrada registrada: {_fmt_centavos(valor)}\nCategoria: {categoria}"
-        )
+        await update.message.reply_text(f"✅ Entrada registrada: {_fmt_centavos(valor)}\nCategoria: {categoria}")

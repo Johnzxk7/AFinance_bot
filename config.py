@@ -1,19 +1,21 @@
 # =========================
-# ALERTAS DIÁRIOS (já existia no seu projeto)
+# ALERTAS DIÁRIOS
 # =========================
 HORA_ALERTA_DIARIO = 8
 MINUTO_ALERTA_DIARIO = 0
 
 # =========================
-# FLAGS / CONFIGS ANTIGAS (compatibilidade com handlers/alertas.py)
+# FLAGS (compatibilidade + controle)
 # =========================
 ALERTA_SALDO_NEGATIVO = True
-ALERTA_GASTOS_ALTOS = True
-ALERTA_LIMITE_GASTOS = True  # ✅ NOVO (faltava)
+ALERTA_LIMITE_GASTOS = True
+ALERTA_CATEGORIAS = True  # ✅ novo: alerta por categoria
 
-# Limites gerais (caso seu alertas.py use isso)
-LIMITE_GASTO_DIARIO = 150   # em reais
-LIMITE_GASTO_MENSAL = 2000  # em reais
+# =========================
+# LIMITES GERAIS
+# =========================
+LIMITE_GASTOS_MENSAL = 2000  # em reais (compatível com seu handlers/alertas.py)
+PERCENTUAL_AVISO = 0.80      # 80% do limite
 
 # =========================
 # CATEGORIAS (NOVO)
@@ -43,9 +45,9 @@ CATEGORIAS_ENTRADA = [
 ]
 
 # =========================
-# ALERTAS INTELIGENTES POR CATEGORIA (NOVO)
+# LIMITES MENSAIS POR CATEGORIA (alerta inteligente)
+# Valores em REAIS
 # =========================
-# Valores em REAIS (mensal).
 LIMITES_MENSAIS_GASTO = {
     "Alimentação": 600,
     "Mercado": 900,
@@ -59,6 +61,3 @@ LIMITES_MENSAIS_GASTO = {
     "Roupas": 200,
     "Investimentos": 300,
 }
-
-# Quando avisar "tá chegando no limite"
-PERCENTUAL_AVISO = 0.80  # 80%

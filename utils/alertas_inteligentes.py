@@ -4,70 +4,61 @@ from zoneinfo import ZoneInfo
 from telegram.ext import ContextTypes
 
 from config import LIMITES_MENSAIS_GASTO, PERCENTUAL_AVISO
-from database.db import total_gasto_categoria_mes, alerta_ja_enviado, registrar_alerta
+from database.db import total_gasto_categoria_mes, alerta_ja_enviado, marcar_alerta_enviado
 
 TZ = ZoneInfo("America/Cuiaba")
 
 
-def _fmt(valor_centavos: int) -> str:
-    reais = valor_centavos // 100
-    centavos = valor_centavos % 100
-    reais_str = f"{reais:,}".replace(",", ".")
-    return f"R$ {reais_str},{centavos:02d}"
+def _fmt(v: float) -> str:
+    return f"R$ {v:,.2f}"
 
 
-async def checar_alerta_categoria(
-    context: ContextTypes.DEFAULT_TYPE,
-    chat_id: int,
-    user_id: int,
-    categoria: str,
-):
+async def checar_alerta_categoria(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int, categoria: str):
     """
-    Alertas inteligentes:
-    - se atingiu 80% do limite -> avisa 1 vez no mês
-    - se passou do limite -> avisa 1 vez no mês
+    Aviso automático:
+    - 80% do limite -> 1 aviso por mês
+    - estourou o limite -> 1 aviso por mês
     """
-    limite_reais = LIMITES_MENSAIS_GASTO.get(categoria)
-    if not limite_reais:
-        return  # sem limite configurado -> sem alerta
-
-    agora = datetime.now(TZ)
-    ano = agora.year
-    mes = agora.month
-
-    limite_centavos = int(limite_reais * 100)
-    gasto_mes = total_gasto_categoria_mes(user_id, categoria, ano, mes)
-
-    if limite_centavos <= 0:
+    limite = LIMITES_MENSAIS_GASTO.get(categoria)
+    if not limite:
         return
 
-    # Já estourou
-    if gasto_mes >= limite_centavos:
-        if not alerta_ja_enviado(user_id, ano, mes, categoria, "estourou"):
-            registrar_alerta(user_id, ano, mes, categoria, "estourou")
+    agora = datetime.now(TZ)
+    periodo_mes = agora.strftime("%Y-%m")
+    ano, mes = agora.year, agora.month
+
+    gasto_mes = total_gasto_categoria_mes(user_id, categoria, ano, mes)
+
+    # Estourou o limite
+    if gasto_mes >= limite:
+        chave = f"cat_estourou:{categoria}"
+        if not alerta_ja_enviado(user_id, chave, periodo_mes):
+            marcar_alerta_enviado(user_id, chave, periodo_mes)
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=(
-                    f"⚠️ *Alerta de limite estourado*\n\n"
-                    f"Categoria: *{categoria}*\n"
-                    f"Limite: {_fmt(limite_centavos)}\n"
-                    f"Gasto no mês: {_fmt(gasto_mes)}\n"
+                    "⚠️ *Alerta: limite da categoria estourado*\n\n"
+                    f"📌 Categoria: *{categoria}*\n"
+                    f"💸 Gasto no mês: {_fmt(gasto_mes)}\n"
+                    f"🎯 Limite: {_fmt(limite)}\n"
                 ),
                 parse_mode="Markdown",
             )
         return
 
-    # Aviso (80%)
-    gatilho = int(limite_centavos * PERCENTUAL_AVISO)
+    # Aviso em 80%
+    gatilho = limite * PERCENTUAL_AVISO
     if gasto_mes >= gatilho:
-        if not alerta_ja_enviado(user_id, ano, mes, categoria, "aviso"):
-            registrar_alerta(user_id, ano, mes, categoria, "aviso")
+        chave = f"cat_aviso:{categoria}"
+        if not alerta_ja_enviado(user_id, chave, periodo_mes):
+            marcar_alerta_enviado(user_id, chave, periodo_mes)
             await context.bot.send_message(
                 chat_id=chat_id,
                 text=(
-                    f"📌 *Aviso de limite*\n\n"
-                    f"Categoria: *{categoria}*\n"
-                    f"Você já chegou em {_fmt(gasto_mes)} de {_fmt(limite_centavos)}.\n"
+                    "📌 *Aviso: você está chegando no limite*\n\n"
+                    f"📌 Categoria: *{categoria}*\n"
+                    f"💸 Gasto no mês: {_fmt(gasto_mes)}\n"
+                    f"🎯 Limite: {_fmt(limite)}\n"
                 ),
                 parse_mode="Markdown",
             )
