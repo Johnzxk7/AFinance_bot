@@ -16,7 +16,7 @@ from handlers.menu import menu_principal
 from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
-
+from handlers.alertas import job_alertas_diarios, testar_alertas
 from handlers.relatorio import job_virada_mes, relatorio_mes_passado, relatorio_mes_atual
 from handlers.alertas import job_alertas_diarios
 from handlers.rapido import processar_mensagem_rapida
@@ -60,6 +60,7 @@ def main():
     # ✅ TESTES do relatório
     app.add_handler(CommandHandler("relatorio", relatorio_mes_passado))
     app.add_handler(CommandHandler("relatorio_atual", relatorio_mes_atual))
+    app.add_handler(CommandHandler("test_alertas", testar_alertas))
 
     # botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
