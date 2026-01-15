@@ -14,7 +14,7 @@ ALERTA_CATEGORIAS = True
 # =========================
 # LIMITES
 # =========================
-LIMITE_GASTOS_MENSAL = 2000
+LIMITE_GASTOS_MENSAL = 20
 PERCENTUAL_AVISO = 0.80
 
 # ✅ INVESTIMENTO AUTOMÁTICO (PARA MENSAGEM DO SALÁRIO)
@@ -23,7 +23,7 @@ INVESTIMENTO_SUGERIDO_FIXO = 800  # << você pediu 800
 # =========================
 # LIMITES POR CATEGORIA (alerta inteligente)
 # =========================
-LIMITES_MENSAIS_GASTO = {
+LIMITES_MENSAIS_GASTO =  {
     "Alimentação": 600,
     "Mercado": 900,
     "Transporte": 250,
