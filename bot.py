@@ -22,7 +22,7 @@ from handlers.relatorio import job_virada_mes
 from handlers.rapido import processar_mensagem_rapida
 from handlers.alertas import job_alertas_diarios
 
-from handlers.atalhos import atalhos_como_mensagem  # ✅ atalhos (arquivo separado)
+from handlers.atalhos import atalhos_como_mensagem  # ✅ atalhos
 
 from config import HORA_ALERTA_DIARIO, MINUTO_ALERTA_DIARIO
 
@@ -38,8 +38,8 @@ logger = logging.getLogger("AFinance")
 
 
 # =========================
-# Helper para reutilizar handlers via comando (/stats, /historico, /comparar)
-# sem refatorar seus handlers que esperam CallbackQuery
+# Helper para reutilizar handlers via comando
+# (mantém compatibilidade com handlers que esperam callback_query)
 # =========================
 class _FakeCallbackQuery:
     def __init__(self, message, from_user):
@@ -73,13 +73,13 @@ async def _comparar_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     criar_tabelas()
 
+    # ✅ sem /compara agora
     await app.bot.set_my_commands(
         [
             BotCommand("start", "Abrir menu"),
             BotCommand("stats", "Estatísticas do mês"),
             BotCommand("historico", "Histórico mensal"),
             BotCommand("comparar", "Comparação mês a mês"),
-            BotCommand("compara", "Atalho para comparar"),
         ]
     )
 
@@ -106,28 +106,15 @@ def main():
     app.add_handler(CommandHandler("historico", _historico_cmd))
     app.add_handler(CommandHandler("comparar", _comparar_cmd))
 
-    # ✅ Alias: /compara
-    app.add_handler(CommandHandler("compara", _comparar_cmd))
-
     # ====== Callbacks dos botões do menu
     app.add_handler(CallbackQueryHandler(estatisticas, pattern="^stats$"))
     app.add_handler(CallbackQueryHandler(historico_mensal, pattern="^historico$"))
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
     # =====================================================
-    # ✅ NOVO: atalhos como mensagem SEM / (sem quebrar o rápido)
-    # Só dispara se a mensagem for EXATAMENTE um desses atalhos.
-    # Assim "gasto 25 lanche" continua indo pro rápido normal.
+    # ✅ Atalhos como mensagem SEM / (sem quebrar o rápido)
     # =====================================================
-    ATALHOS_REGEX = (
-        r"(?i)^\s*("
-        r"start|menu|"
-        r"stats|stat|resumo|estat[ií]stica(?:s)?|"
-        r"historico|hist[oó]rico|hist|"
-        r"mes|m[eê]s|"
-        r"comparar|compara|comparacao|compara[cç][aã]o"
-        r")\s*$"
-    )
+    ATALHOS_REGEX = r"(?i)^\s*(start|menu|stats|resumo|historico|mes|m[eê]s|comparar|comparacao|compara[cç][aã]o)\s*$"
 
     app.add_handler(
         MessageHandler(

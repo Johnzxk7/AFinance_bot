@@ -9,8 +9,8 @@ from handlers.comparacao import comparacao_mes_a_mes
 
 
 # =========================================================
-# Mantém compatibilidade com seus handlers atuais
-# (feitos para CallbackQuery)
+# Seus handlers stats/historico/comparacao foram feitos
+# esperando callback_query, então criamos um "fake" aqui.
 # =========================================================
 class _FakeCallbackQuery:
     def __init__(self, message, from_user):
@@ -26,11 +26,11 @@ def _fake_callback_update(update: Update) -> Update:
     return update
 
 
-def _normalizar_texto(texto: str) -> str:
+def _normalizar(texto: str) -> str:
     """
     Normaliza:
+    - minúsculo
     - remove acentos
-    - deixa minúsculo
     - remove espaços extras
     """
     texto = (texto or "").strip().lower()
@@ -39,39 +39,35 @@ def _normalizar_texto(texto: str) -> str:
     return texto
 
 
-# =========================================================
-# Atalhos como mensagem normal (sem /)
-# =========================================================
 async def atalhos_como_mensagem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Permite que palavras como:
-    start / menu
-    stats / resumo
-    historico / mes
-    comparar / comparacao
-    funcionem como atalho, mesmo SEM /.
+    Mensagens normais que viram atalhos:
+    - start / menu  -> abre menu
+    - stats / resumo -> estatísticas
+    - historico / mes -> histórico mensal
+    - comparar / comparacao -> comparação mês a mês
     """
     if not update.message or not update.message.text:
         return
 
-    texto = _normalizar_texto(update.message.text)
+    texto = _normalizar(update.message.text)
 
-    # ✅ Menu principal
+    # ✅ Menu
     if texto in ("start", "menu"):
         await menu_principal(update, context)
         return
 
-    # ✅ Resumo/Estatísticas
-    if texto in ("stats", "stat", "resumo", "estatistica", "estatisticas"):
+    # ✅ Stats / Resumo
+    if texto in ("stats", "resumo", "estatistica", "estatisticas"):
         await estatisticas(_fake_callback_update(update), context)
         return
 
-    # ✅ Histórico do mês
-    if texto in ("historico", "hist", "mes", "mês"):
+    # ✅ Histórico / Mês
+    if texto in ("historico", "mes"):
         await historico_mensal(_fake_callback_update(update), context)
         return
 
-    # ✅ Comparação mês a mês
-    if texto in ("comparar", "compara", "comparacao", "comparação"):
+    # ✅ Comparar / Comparação
+    if texto in ("comparar", "comparacao"):
         await comparacao_mes_a_mes(_fake_callback_update(update), context)
         return
