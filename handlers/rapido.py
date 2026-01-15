@@ -9,6 +9,13 @@ from config import INVESTIMENTO_SUGERIDO_FIXO, LIMITES_MENSAIS_GASTO
 from database.db import inserir_transacao, total_gasto_categoria_mes
 from utils.alertas_inteligentes import checar_alerta_categoria
 
+# ✅ atalhos chamam handlers daqui
+from handlers.menu import menu_principal
+from handlers.stats import estatisticas
+from handlers.historico import historico_mensal
+from handlers.comparacao import comparacao_mes_a_mes
+from handlers.relatorio import relatorio_mes_passado, relatorio_mes_atual
+
 TZ = ZoneInfo("America/Cuiaba")
 
 
@@ -102,11 +109,6 @@ def _detectar_categoria(tipo: str, descricao: str) -> str:
 
 
 def _insight_categoria(user_id: int, categoria: str) -> str:
-    """
-    Insight do mês atual:
-    - total gasto na categoria no mês
-    - % do limite (se existir)
-    """
     agora = datetime.now(TZ)
     ano, mes = agora.year, agora.month
 
@@ -121,18 +123,55 @@ def _insight_categoria(user_id: int, categoria: str) -> str:
 
 
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ✅ Agora esse handler faz TUDO:
+    - atalhos (menu/resumo/mes/comparar/relatorio)
+    - entrada/gasto/salario automático
+    - insight após gasto
+    """
     if not update.message or not update.message.text:
         return
 
-    partes = update.message.text.strip().split()
+    txt = update.message.text.strip()
+    lower = txt.lower()
+
+    # =========================
+    # ✅ ATALHOS (SEM ATRAPALHAR O RÁPIDO)
+    # =========================
+    if lower in ("menu", "start"):
+        await menu_principal(update, context)
+        return
+
+    if lower in ("resumo", "stats"):
+        await estatisticas(update, context)
+        return
+
+    if lower in ("mes", "mês", "historico", "histórico"):
+        await historico_mensal(update, context)
+        return
+
+    if lower in ("comparar", "comparacao", "comparação"):
+        await comparacao_mes_a_mes(update, context)
+        return
+
+    if lower in ("relatorio", "relatório"):
+        await relatorio_mes_passado(update, context)
+        return
+
+    if lower in ("relatorio_atual", "relatório_atual"):
+        await relatorio_mes_atual(update, context)
+        return
+
+    # =========================
+    # ✅ REGISTRO RÁPIDO
+    # =========================
+    partes = txt.split()
     if not partes:
         return
 
     cmd = partes[0].lower()
 
-    # =========================
-    # SALARIO (entrada + investimento automático como gasto)
-    # =========================
+    # SALARIO (entrada + investimento automático)
     if cmd == "salario":
         if len(partes) < 2:
             await update.message.reply_text("Use: salario 1300 escritorio")
@@ -145,7 +184,7 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
 
         descricao = " ".join(partes[2:]) if len(partes) > 2 else "salario"
 
-        # 1) Salva ENTRADA salário
+        # 1) ENTRADA salário
         tid_entrada = inserir_transacao(
             user_id=update.effective_user.id,
             tipo="entrada",
@@ -154,11 +193,10 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             descricao=descricao,
         )
 
-        # 2) Cria GASTO investimento automático
+        # 2) GASTO investimento automático
         investimento_reais = float(INVESTIMENTO_SUGERIDO_FIXO)
         investimento_centavos = int(round(investimento_reais * 100))
 
-        # Se salário menor que 800, investe só o que dá
         if investimento_centavos > valor_salario:
             investimento_centavos = valor_salario
 
@@ -188,7 +226,6 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
 
         await update.message.reply_text(msg)
 
-        # alerta de investimentos (se quiser)
         if tid_invest is not None:
             await checar_alerta_categoria(
                 context=context,
@@ -198,9 +235,7 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             )
         return
 
-    # =========================
     # ENTRADA / GASTO normal
-    # =========================
     if cmd not in ("entrada", "gasto"):
         return
 
