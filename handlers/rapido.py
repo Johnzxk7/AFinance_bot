@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from config import INVESTIMENTO_SUGERIDO_FIXO
-from database.db import inserir_transacao
+from config import INVESTIMENTO_SUGERIDO_FIXO, LIMITES_MENSAIS_GASTO
+from database.db import inserir_transacao, total_gasto_categoria_mes
 from utils.alertas_inteligentes import checar_alerta_categoria
 
 TZ = ZoneInfo("America/Cuiaba")
@@ -33,6 +33,10 @@ def _parse_valor_centavos(texto: str) -> int | None:
 
 def _fmt_centavos(c: int) -> str:
     return f"R$ {c/100:.2f}"
+
+
+def _fmt_reais(v: float) -> str:
+    return f"R$ {v:,.2f}"
 
 
 def _tag_curta(user_id: int, transacao_id: int) -> str:
@@ -97,6 +101,25 @@ def _detectar_categoria(tipo: str, descricao: str) -> str:
     return "Outros"
 
 
+def _insight_categoria(user_id: int, categoria: str) -> str:
+    """
+    Insight do mês atual:
+    - total gasto na categoria no mês
+    - % do limite (se existir)
+    """
+    agora = datetime.now(TZ)
+    ano, mes = agora.year, agora.month
+
+    total_cat = total_gasto_categoria_mes(user_id, categoria, ano, mes)
+    limite = LIMITES_MENSAIS_GASTO.get(categoria)
+
+    if limite and limite > 0:
+        perc = (total_cat / limite) * 100
+        return f"📌 Neste mês você já gastou {_fmt_reais(total_cat)} em *{categoria}* ({perc:.0f}% do limite de {_fmt_reais(limite)})."
+    else:
+        return f"📌 Neste mês você já gastou {_fmt_reais(total_cat)} em *{categoria}*."
+
+
 async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -108,7 +131,7 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
     cmd = partes[0].lower()
 
     # =========================
-    # SALARIO (cria entrada + gasto investimento automático)
+    # SALARIO (entrada + investimento automático como gasto)
     # =========================
     if cmd == "salario":
         if len(partes) < 2:
@@ -122,23 +145,20 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
 
         descricao = " ".join(partes[2:]) if len(partes) > 2 else "salario"
 
-        # ✅ salário sempre como categoria Salário
-        categoria_salario = "Salário"
-
-        # 1) salva ENTRADA do salário
+        # 1) Salva ENTRADA salário
         tid_entrada = inserir_transacao(
             user_id=update.effective_user.id,
             tipo="entrada",
             valor_centavos=valor_salario,
-            categoria=categoria_salario,
+            categoria="Salário",
             descricao=descricao,
         )
 
-        # 2) cria automaticamente o INVESTIMENTO como GASTO (até no máximo o salário)
+        # 2) Cria GASTO investimento automático
         investimento_reais = float(INVESTIMENTO_SUGERIDO_FIXO)
         investimento_centavos = int(round(investimento_reais * 100))
 
-        # se salário for menor que 800, investe somente o que dá
+        # Se salário menor que 800, investe só o que dá
         if investimento_centavos > valor_salario:
             investimento_centavos = valor_salario
 
@@ -160,20 +180,15 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
 
         msg = (
             "✅ Salário anotado!\n\n"
-            f"📝 {descricao} ({categoria_salario})\n"
+            f"📝 {descricao} (Salário)\n"
             f"💸 {_fmt_centavos(valor_salario)}\n"
+            f"📈 Investimento automático: R$ {invest_reais_final:.2f} ({perc:.1f}%)\n"
+            f"🗓️ {_data_br()} - {tag}"
         )
-
-        if tid_invest is not None:
-            msg += f"📈 Investimento automático: R$ {invest_reais_final:.2f} ({perc:.1f}%)\n"
-        else:
-            msg += "📈 Investimento automático: R$ 0.00 (0.0%)\n"
-
-        msg += f"🗓️ {_data_br()} - {tag}"
 
         await update.message.reply_text(msg)
 
-        # opcional: alerta de categoria investimentos (se tiver limite)
+        # alerta de investimentos (se quiser)
         if tid_invest is not None:
             await checar_alerta_categoria(
                 context=context,
@@ -213,11 +228,15 @@ async def processar_mensagem_rapida(update: Update, context: ContextTypes.DEFAUL
             f"🗓️ {_data_br()} - {tag}"
         )
     else:
+        insight = _insight_categoria(update.effective_user.id, categoria)
+
         await update.message.reply_text(
             "✅ Gasto anotado!\n\n"
             f"📝 {descricao} ({categoria})\n"
             f"💸 {_fmt_centavos(valor)}\n"
-            f"🗓️ {_data_br()} - {tag}"
+            f"🗓️ {_data_br()} - {tag}\n\n"
+            f"{insight}",
+            parse_mode="Markdown",
         )
 
         await checar_alerta_categoria(

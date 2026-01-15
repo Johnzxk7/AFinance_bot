@@ -16,6 +16,7 @@ from handlers.menu import menu_principal
 from handlers.stats import estatisticas
 from handlers.historico import historico_mensal
 from handlers.comparacao import comparacao_mes_a_mes
+from handlers.atalhos import processar_atalhos
 from handlers.alertas import job_alertas_diarios, testar_alertas
 from handlers.relatorio import job_virada_mes, relatorio_mes_passado, relatorio_mes_atual
 from handlers.alertas import job_alertas_diarios
@@ -68,6 +69,7 @@ def main():
     app.add_handler(CallbackQueryHandler(comparacao_mes_a_mes, pattern="^comparar$"))
 
     # mensagens rápidas
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_atalhos))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, processar_mensagem_rapida))
 
     # jobs
